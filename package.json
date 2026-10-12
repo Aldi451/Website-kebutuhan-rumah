@@ -1,0 +1,18 @@
+{
+  "name": "rumarapi-rumah",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dashboard keuangan rumah dan pengingat keluarga berbasis PHP.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs"
+  },
+  "devDependencies": {
+    "@php-wasm/node-8-2": "3.1.58",
+    "@php-wasm/universal": "3.1.58"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

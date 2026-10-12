@@ -1,0 +1,7 @@
+node_modules/
+config.php
+storage/*.sqlite
+storage/*.sqlite-*
+storage/*.db
+.runtime/
+.DS_Store
