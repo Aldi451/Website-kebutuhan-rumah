@@ -27,6 +27,8 @@
     reminderFilter: 'all',
     members: null,
     settings: null,
+    importType: null,
+    importPreview: null,
   };
 
   const ICONS = {
@@ -59,6 +61,7 @@
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
     moon: '<path d="M20.2 15.7A8.6 8.6 0 0 1 8.3 3.8a8.8 8.8 0 1 0 11.9 11.9Z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
   };
 
   const NAV_ITEMS = [
@@ -226,6 +229,307 @@
 
   function closeModal() {
     modalRoot.innerHTML = '';
+  }
+
+  function downloadImportTemplate(type) {
+    const columns = type === 'reminders'
+      ? ['Judul', 'Tanggal', 'Jam', 'Kategori', 'Catatan']
+      : ['Jenis', 'Nama transaksi', 'Nominal', 'Tanggal', 'Kategori', 'Catatan'];
+    const csv = `\uFEFF${columns.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')}\r\n`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = type === 'reminders' ? 'template-pengingat.csv' : 'template-keuangan.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function openImportModal(type) {
+    if (!['transactions', 'reminders'].includes(type)) return;
+    state.importType = type;
+    state.importPreview = null;
+    const reminders = type === 'reminders';
+    const instructions = reminders
+      ? 'Kolom wajib: Judul dan Tanggal. Isi Jam dengan format 09:30; jika kosong, akan dipakai 09:00.'
+      : 'Kolom wajib: Jenis (Pemasukan/Pengeluaran), Nama transaksi, Nominal, dan Tanggal (YYYY-MM-DD).';
+    openModal(reminders ? 'Import pengingat' : 'Import keuangan', 'Unggah banyak baris sekaligus dari Excel atau CSV.', `
+      <div class="modal-body import-modal-body">
+        <div class="import-instructions"><p>${instructions}</p><p>Baris pertama harus berisi judul kolom. Workbook dibaca dari sheet pertama, maksimal 500 baris per file; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
+        <button class="btn btn-secondary import-template-button" type="button" data-action="download-import-template" data-import-type="${type}">${icon('receipt')} Unduh template CSV</button>
+        <label class="import-upload-box" for="import-file"><input class="import-file-input" id="import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-import-file><span class="import-upload-mark">${icon('upload')}</span><span class="import-upload-copy"><strong>Pilih file Excel atau CSV</strong><small data-import-file-name>Format .xlsx atau .csv · maksimal 10 MB</small></span></label>
+        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; unggah file yang sama lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim Telegram satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
+        <p class="error-text import-error" data-import-error hidden></p>
+        <div class="import-preview" data-import-preview hidden></div>
+        <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="button" data-action="confirm-import" disabled>Import</button></div>
+      </div>`, { widthClass: 'modal-import' });
+  }
+
+  function normalizeImportHeader(value) {
+    return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function importColumn(headers, aliases) {
+    const normalized = headers.map(normalizeImportHeader);
+    for (const alias of aliases) {
+      const index = normalized.indexOf(normalizeImportHeader(alias));
+      if (index >= 0) return index;
+    }
+    return -1;
+  }
+
+  function importCell(row, index) {
+    return index >= 0 ? (row.cells[index] ?? '') : '';
+  }
+
+  function excelSerialParts(serial) {
+    if (!Number.isFinite(serial) || serial < 20000 || serial > 2958465) return null;
+    const wholeDays = Math.floor(serial);
+    let minutes = Math.round((serial - wholeDays) * 1440);
+    const date = new Date(Date.UTC(1899, 11, 30) + wholeDays * 86400000);
+    if (minutes >= 1440) {
+      date.setUTCDate(date.getUTCDate() + 1);
+      minutes = 0;
+    }
+    return { date: date.toISOString().slice(0, 10), time: minutes ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}` : '' };
+  }
+
+  function buildDateParts(year, month, day, hour = 0, minute = 0) {
+    year = Number(year); month = Number(month); day = Number(day); hour = Number(hour); minute = Number(minute);
+    if (year < 1900 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return { date: date.toISOString().slice(0, 10), time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` };
+  }
+
+  function parseImportDate(value) {
+    if (typeof value === 'number') return excelSerialParts(value);
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    if (/^\d+(?:\.\d+)?$/.test(text)) {
+      const serial = excelSerialParts(Number(text));
+      if (serial) return serial;
+    }
+    let match = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::\d{2})?)?$/.exec(text);
+    if (match) {
+      const parts = buildDateParts(match[1], match[2], match[3], match[4] || 0, match[5] || 0);
+      if (parts && !match[4]) parts.time = '';
+      return parts;
+    }
+    match = /^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})(?:[T ](\d{1,2}):(\d{2})(?::\d{2})?)?$/.exec(text);
+    if (match) {
+      let year = Number(match[3]);
+      if (year < 100) year += year < 50 ? 2000 : 1900;
+      const parts = buildDateParts(year, match[2], match[1], match[4] || 0, match[5] || 0);
+      if (parts && !match[4]) parts.time = '';
+      return parts;
+    }
+    const parsed = Date.parse(text);
+    if (!Number.isNaN(parsed)) {
+      const date = new Date(parsed);
+      const parts = buildDateParts(date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes());
+      if (parts && !/[T ]\d{1,2}:\d{2}/.test(text)) parts.time = '';
+      return parts;
+    }
+    return null;
+  }
+
+  function parseImportTime(value) {
+    if (typeof value === 'number' && value >= 0 && value < 1) {
+      const minutes = Math.round(value * 1440) % 1440;
+      return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    }
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    const match = /^(\d{1,2})(?:[:.](\d{2}))?(?:[:.]\d{2})?\s*(am|pm)?$/i.exec(text);
+    if (!match) return '';
+    let hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    const suffix = (match[3] || '').toLowerCase();
+    if (suffix) {
+      if (hour < 1 || hour > 12) return '';
+      if (suffix === 'pm' && hour < 12) hour += 12;
+      if (suffix === 'am' && hour === 12) hour = 0;
+    }
+    if (hour > 23 || minute > 59) return '';
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  function parseImportAmount(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : NaN;
+    let text = String(value ?? '').trim().replace(/[^0-9,.-]/g, '');
+    if (!text) return NaN;
+    const negative = text.startsWith('-');
+    text = text.replace(/-/g, '');
+    const comma = text.lastIndexOf(',');
+    const dot = text.lastIndexOf('.');
+    const lastSeparator = Math.max(comma, dot);
+    if (lastSeparator >= 0) {
+      const trailing = text.length - lastSeparator - 1;
+      const separators = (text.match(/[,.]/g) || []).length;
+      if (trailing > 0 && trailing <= 2 && (separators === 1 || (comma >= 0 && dot >= 0))) {
+        text = `${text.slice(0, lastSeparator).replace(/[,.]/g, '')}.${text.slice(lastSeparator + 1)}`;
+      } else {
+        text = text.replace(/[,.]/g, '');
+      }
+    }
+    const amount = Number(text);
+    return Number.isFinite(amount) ? Math.round(negative ? -amount : amount) : NaN;
+  }
+
+  function prepareImportRows(type, workbookRows) {
+    const headerPosition = workbookRows.findIndex((row) => row.cells.some((cell) => String(cell ?? '').trim() !== ''));
+    if (headerPosition < 0) throw new Error('File belum berisi judul kolom.');
+    const headers = workbookRows[headerPosition].cells;
+    const rows = workbookRows.slice(headerPosition + 1).filter((row) => row.cells.some((cell) => String(cell ?? '').trim() !== ''));
+    if (!rows.length) throw new Error('File belum berisi baris data.');
+    if (rows.length > 500) throw new Error('Maksimal 500 baris data per file.');
+
+    const valid = [];
+    const invalid = [];
+    if (type === 'transactions') {
+      const indexes = {
+        kind: importColumn(headers, ['jenis', 'tipe', 'jenis transaksi', 'type', 'kind']),
+        title: importColumn(headers, ['nama transaksi', 'transaksi', 'judul', 'nama', 'title']),
+        amount: importColumn(headers, ['nominal', 'jumlah', 'amount', 'total', 'nilai']),
+        date: importColumn(headers, ['tanggal transaksi', 'tanggal', 'date', 'tgl', 'transaction date']),
+        category: importColumn(headers, ['kategori', 'category']),
+        note: importColumn(headers, ['catatan', 'note', 'keterangan', 'deskripsi']),
+      };
+      const missing = Object.entries({ kind: 'Jenis', title: 'Nama transaksi', amount: 'Nominal', date: 'Tanggal' }).filter(([key]) => indexes[key] < 0).map(([, label]) => label);
+      if (missing.length) throw new Error(`Kolom wajib belum ditemukan: ${missing.join(', ')}. Gunakan template agar formatnya sesuai.`);
+      for (const row of rows) {
+        const kindText = normalizeImportHeader(importCell(row, indexes.kind));
+        const kind = ['pemasukan', 'income', 'masuk', 'uangmasuk'].includes(kindText) ? 'income'
+          : ['pengeluaran', 'expense', 'keluar', 'uangkeluar'].includes(kindText) ? 'expense' : '';
+        const title = String(importCell(row, indexes.title) ?? '').trim();
+        const category = String(importCell(row, indexes.category) || 'Lainnya').trim();
+        const amount = parseImportAmount(importCell(row, indexes.amount));
+        const date = parseImportDate(importCell(row, indexes.date))?.date || '';
+        const note = String(importCell(row, indexes.note) ?? '').trim();
+        const reasons = [];
+        if (!kind) reasons.push('Jenis harus Pemasukan atau Pengeluaran');
+        if (!title || title.length > 100) reasons.push('Nama transaksi wajib diisi (maks. 100 karakter)');
+        if (!Number.isInteger(amount) || amount < 1 || amount > 999999999999) reasons.push('Nominal tidak valid');
+        if (!date) reasons.push('Tanggal tidak valid');
+        if (!category || category.length > 40) reasons.push('Kategori maksimal 40 karakter');
+        if (note.length > 500) reasons.push('Catatan maksimal 500 karakter');
+        if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; ') });
+        else valid.push({ row: row.number, data: { kind, title, category, amount, date, note } });
+      }
+    } else {
+      const indexes = {
+        title: importColumn(headers, ['judul', 'pengingat', 'nama agenda', 'agenda', 'title', 'nama']),
+        dateTime: importColumn(headers, ['tanggal dan waktu', 'tanggal waktu', 'tanggal jam', 'waktu pengingat', 'reminder at', 'reminder_at', 'datetime', 'date and time']),
+        date: importColumn(headers, ['tanggal', 'date', 'tgl']),
+        time: importColumn(headers, ['jam', 'time']),
+        timeCombined: importColumn(headers, ['waktu']),
+        category: importColumn(headers, ['kategori', 'category']),
+        note: importColumn(headers, ['catatan', 'note', 'keterangan', 'detail']),
+      };
+      if (indexes.title < 0) throw new Error('Kolom Judul belum ditemukan. Gunakan template pengingat.');
+      if (indexes.dateTime < 0 && indexes.date < 0 && indexes.timeCombined < 0) throw new Error('Kolom Tanggal belum ditemukan. Gunakan template pengingat.');
+      for (const row of rows) {
+        const title = String(importCell(row, indexes.title) ?? '').trim();
+        const combinedDate = indexes.dateTime >= 0 ? importCell(row, indexes.dateTime)
+          : indexes.date >= 0 ? importCell(row, indexes.date) : importCell(row, indexes.timeCombined);
+        const dateParts = parseImportDate(combinedDate);
+        const separateTime = indexes.time >= 0 ? parseImportTime(importCell(row, indexes.time)) : '';
+        const time = separateTime || dateParts?.time || '09:00';
+        const reminderAt = dateParts ? `${dateParts.date}T${time}` : '';
+        const category = String(importCell(row, indexes.category) || 'Lainnya').trim();
+        const note = String(importCell(row, indexes.note) ?? '').trim();
+        const reasons = [];
+        if (!title || title.length > 120) reasons.push('Judul wajib diisi (maks. 120 karakter)');
+        if (!reminderAt) reasons.push('Tanggal atau waktu tidak valid');
+        if (!category || category.length > 40) reasons.push('Kategori maksimal 40 karakter');
+        if (note.length > 500) reasons.push('Catatan maksimal 500 karakter');
+        if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; ') });
+        else valid.push({ row: row.number, data: { title, category, reminder_at: reminderAt, note } });
+      }
+    }
+    return { valid, invalid };
+  }
+
+  function renderImportPreview() {
+    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    const fileNameNode = modalRoot.querySelector('[data-import-file-name]');
+    const preview = state.importPreview;
+    if (!previewNode || !preview) return;
+    previewNode.hidden = false;
+    if (errorNode) errorNode.hidden = true;
+    if (fileNameNode) fileNameNode.textContent = preview.fileName;
+    const reminders = preview.type === 'reminders';
+    const sample = preview.valid.slice(0, 5).map((item) => reminders
+      ? `<tr><td>${escapeHtml(dateTimeLabel(item.data.reminder_at))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`
+      : `<tr><td>${escapeHtml(dateLabel(item.data.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td>${item.data.kind === 'income' ? 'Masuk' : 'Keluar'}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(money(item.data.amount))}</td></tr>`).join('');
+    const headers = reminders ? '<th>Tanggal & jam</th><th>Judul</th><th>Kategori</th>' : '<th>Tanggal</th><th>Jenis</th><th>Transaksi</th><th>Nominal</th>';
+    const invalidList = preview.invalid.slice(0, 5).map((item) => `<li>Baris ${Number(item.row)}: ${escapeHtml(item.reason)}</li>`).join('');
+    previewNode.innerHTML = `<div class="import-result-line"><strong>${preview.valid.length} baris siap</strong><span>${preview.invalid.length ? `${preview.invalid.length} dilewati` : 'Data terlihat valid'}</span></div>${sample ? `<div class="import-table-wrap"><table class="import-table"><thead><tr>${headers}</tr></thead><tbody>${sample}</tbody></table></div>` : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>'}${invalidList ? `<details class="import-invalid"><summary>Lihat contoh baris yang dilewati</summary><ul>${invalidList}</ul></details>` : ''}`;
+    if (confirmButton) {
+      confirmButton.disabled = preview.valid.length === 0;
+      confirmButton.textContent = preview.valid.length ? `Import ${preview.valid.length} baris` : 'Import';
+    }
+  }
+
+  async function handleImportFile(file) {
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    const fileNameNode = modalRoot.querySelector('[data-import-file-name]');
+    state.importPreview = null;
+    if (previewNode) { previewNode.hidden = true; previewNode.innerHTML = ''; }
+    if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+    if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Membaca…'; }
+    if (fileNameNode && file) fileNameNode.textContent = `${file.name} · membaca isi file…`;
+    try {
+      if (!window.HouseholdImport) throw new Error('Pembaca file belum siap. Muat ulang halaman lalu coba lagi.');
+      const workbookRows = await window.HouseholdImport.read(file);
+      const prepared = prepareImportRows(state.importType, workbookRows);
+      state.importPreview = { ...prepared, type: state.importType, fileName: file.name };
+      renderImportPreview();
+    } catch (error) {
+      if (errorNode) { errorNode.textContent = error.message || 'File tidak dapat dibaca.'; errorNode.hidden = false; }
+      if (fileNameNode) fileNameNode.textContent = file ? file.name : 'Pilih file Excel atau CSV';
+      if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+    }
+  }
+
+  async function confirmImport(button) {
+    const preview = state.importPreview;
+    if (!preview || !preview.valid.length) return;
+    button.disabled = true;
+    button.textContent = 'Mengimpor…';
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    if (errorNode) errorNode.hidden = true;
+    try {
+      const action = preview.type === 'reminders' ? 'reminders/import' : 'transactions/import';
+      const result = await api(action, { rows: preview.valid.map((item) => ({ ...item.data, source_row: item.row })) });
+      const type = preview.type;
+      closeModal();
+      state.importPreview = null;
+      state.dashboard = null;
+      if (type === 'reminders') {
+        state.reminders = null;
+        state.reminderFilter = 'all';
+      } else {
+        state.finance = null;
+        state.transactionFilter = 'all';
+        const latestDate = preview.valid.reduce((latest, item) => item.data.date > latest ? item.data.date : latest, '');
+        if (latestDate) state.financeMonth = latestDate.slice(0, 7);
+      }
+      await refreshPage(true);
+      const imported = Number(result.imported || 0);
+      const skipped = Number(result.skipped || 0) + preview.invalid.length;
+      showToast(`${imported} ${type === 'reminders' ? 'pengingat' : 'transaksi'} berhasil diimpor${skipped ? `; ${skipped} baris dilewati` : ''}.`, skipped ? 'error' : 'success');
+    } catch (error) {
+      if (errorNode) { errorNode.textContent = error.message || 'Data gagal diimpor.'; errorNode.hidden = false; }
+      button.disabled = false;
+      button.textContent = `Import ${preview.valid.length} baris`;
+    }
   }
 
   function emptyState(title, description, glyph = 'spark') {
@@ -476,7 +780,7 @@
     const target = Number(data.target || 0);
     const spent = Number(data.summary?.expense || 0);
     const progress = target ? Math.min(100, Math.round(spent / target * 100)) : 0;
-    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
+    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions finance-import-actions"><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="transactions">${icon('upload')} Import Excel</button><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
       <div class="finance-filter" style="margin:-5px 0 16px"><label class="sr-only" for="finance-month">Pilih bulan</label><input class="month-input" type="month" id="finance-month" data-month-filter value="${escapeHtml(month)}"><span class="text-muted" style="font-size:10px">${escapeHtml(monthLabel(month))}</span></div>
       <div class="grid finance-top-grid">
         <article class="card finance-metric"><span class="stat-label"><span class="legend-dot"></span> Total uang masuk</span><div class="stat-value" style="color:#328269">${money(data.summary?.income || 0)}</div></article>
@@ -502,7 +806,7 @@
     const total = allReminders.length;
     const rows = reminders.map((item) => reminderItem(item)).join('');
     const tab = (id, label, count) => `<button class="filter-tab${state.reminderFilter === id ? ' active' : ''}" type="button" data-reminder-filter="${id}">${label}${count !== null ? ` · ${count}` : ''}</button>`;
-    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> agenda rumah</span><h1>Pengingat</h1><p>Biar hal kecil yang penting nggak kelewat.</p></div><div class="heading-actions"><button class="btn" type="button" data-action="open-reminder">${icon('plus')} Buat pengingat</button></div></div>
+    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> agenda rumah</span><h1>Pengingat</h1><p>Biar hal kecil yang penting nggak kelewat.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="reminders">${icon('upload')} Import Excel</button><button class="btn" type="button" data-action="open-reminder">${icon('plus')} Buat pengingat</button></div></div>
       <div class="grid reminder-summary-grid">
         <article class="card reminder-stat"><span class="reminder-stat-icon">${icon('bell')}</span><span><strong>${pending}</strong><span>Pengingat aktif</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${reminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
@@ -657,6 +961,9 @@
     }
     const action = actionButton.dataset.action;
     if (action === 'toggle-login-theme') setLoginTheme(state.loginTheme === 'dark' ? 'light' : 'dark');
+    else if (action === 'open-import') openImportModal(actionButton.dataset.importType);
+    else if (action === 'download-import-template') downloadImportTemplate(actionButton.dataset.importType);
+    else if (action === 'confirm-import') await confirmImport(actionButton);
     else if (action === 'close-modal') closeModal();
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
@@ -696,7 +1003,11 @@
     }
   });
 
-  document.addEventListener('change', (event) => {
+  document.addEventListener('change', async (event) => {
+    if (event.target.matches('[data-import-file]')) {
+      await handleImportFile(event.target.files?.[0]);
+      return;
+    }
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;

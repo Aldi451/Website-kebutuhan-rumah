@@ -139,7 +139,7 @@ try {
         if (!app_valid_month($month)) {
             app_json(['ok' => false, 'message' => 'Format bulan tidak valid.'], 422);
         }
-        $query = $pdo->prepare('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, t.created_at, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id WHERE SUBSTR(t.transaction_date, 1, 7) = :month ORDER BY t.transaction_date DESC, t.id DESC LIMIT 500');
+        $query = $pdo->prepare('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, t.created_at, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id WHERE SUBSTR(t.transaction_date, 1, 7) = :month ORDER BY t.transaction_date DESC, t.id DESC LIMIT 1000');
         $query->execute([':month' => $month]);
         $targetQuery = $pdo->prepare('SELECT amount FROM monthly_targets WHERE month_key = :month LIMIT 1');
         $targetQuery->execute([':month' => $month]);
@@ -176,6 +176,60 @@ try {
             ':user' => $user['id'], ':created' => $now,
         ]);
         app_json(['ok' => true, 'message' => 'Transaksi berhasil disimpan.']);
+    }
+
+    if ($action === 'transactions/import' && $method === 'POST') {
+        $rows = $input['rows'] ?? null;
+        if (!is_array($rows) || $rows === [] || count($rows) > 500) {
+            app_json(['ok' => false, 'message' => 'Pilih 1–500 baris transaksi untuk diimpor.'], 422);
+        }
+        $validRows = [];
+        $errors = [];
+        foreach ($rows as $index => $row) {
+            $rowNumber = filter_var(is_array($row) ? ($row['source_row'] ?? null) : null, FILTER_VALIDATE_INT);
+            if ($rowNumber === false || $rowNumber < 1) $rowNumber = $index + 2;
+            if (!is_array($row)) {
+                $errors[] = ['row' => $rowNumber, 'message' => 'Baris tidak terbaca.'];
+                continue;
+            }
+            $kind = trim((string) ($row['kind'] ?? ''));
+            $title = trim((string) ($row['title'] ?? ''));
+            $category = trim((string) ($row['category'] ?? 'Lainnya'));
+            $amount = filter_var($row['amount'] ?? null, FILTER_VALIDATE_INT);
+            $date = trim((string) ($row['date'] ?? ''));
+            $note = trim((string) ($row['note'] ?? ''));
+            $problems = [];
+            if (!in_array($kind, ['income', 'expense'], true)) $problems[] = 'jenis tidak valid';
+            if ($title === '' || strlen($title) > 100) $problems[] = 'nama transaksi wajib diisi (maks. 100 karakter)';
+            if ($category === '' || strlen($category) > 40) $problems[] = 'kategori tidak valid';
+            if ($amount === false || $amount < 1 || $amount > 999999999999) $problems[] = 'nominal tidak valid';
+            if (!app_valid_date($date)) $problems[] = 'tanggal tidak valid';
+            if (strlen($note) > 500) $problems[] = 'catatan maksimal 500 karakter';
+            if ($problems !== []) {
+                $errors[] = ['row' => $rowNumber, 'message' => implode('; ', $problems)];
+                continue;
+            }
+            $validRows[] = ['kind' => $kind, 'title' => $title, 'category' => $category, 'amount' => $amount, 'date' => $date, 'note' => $note];
+        }
+        if ($validRows === []) {
+            app_json(['ok' => false, 'message' => 'Tidak ada transaksi valid untuk diimpor.', 'imported' => 0, 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)], 422);
+        }
+        $insert = $pdo->prepare('INSERT INTO transactions (kind, title, category, amount, transaction_date, note, user_id, created_at) VALUES (:kind, :title, :category, :amount, :date, :note, :user, :created)');
+        $pdo->beginTransaction();
+        try {
+            foreach ($validRows as $row) {
+                $insert->execute([
+                    ':kind' => $row['kind'], ':title' => $row['title'], ':category' => $row['category'],
+                    ':amount' => $row['amount'], ':date' => $row['date'], ':note' => $row['note'] === '' ? null : $row['note'],
+                    ':user' => $user['id'], ':created' => $now,
+                ]);
+            }
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $error;
+        }
+        app_json(['ok' => true, 'message' => 'Transaksi berhasil diimpor.', 'imported' => count($validRows), 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)]);
     }
 
     if ($action === 'transaction/delete' && $method === 'POST') {
@@ -222,9 +276,9 @@ try {
             $status = 'all';
         }
         if ($status === 'all') {
-            $query = $pdo->query('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by ORDER BY CASE WHEN r.status = \'pending\' THEN 0 ELSE 1 END, CASE WHEN r.status = \'pending\' THEN r.reminder_at END ASC, CASE WHEN r.status = \'done\' THEN r.completed_at END DESC LIMIT 300');
+            $query = $pdo->query('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by ORDER BY CASE WHEN r.status = \'pending\' THEN 0 ELSE 1 END, CASE WHEN r.status = \'pending\' THEN r.reminder_at END ASC, CASE WHEN r.status = \'done\' THEN r.completed_at END DESC LIMIT 1000');
         } else {
-            $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = :status ORDER BY reminder_at ASC LIMIT 300');
+            $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = :status ORDER BY reminder_at ASC LIMIT 1000');
             $query->execute([':status' => $status]);
         }
         app_json(['ok' => true, 'reminders' => array_map('app_clean_reminder', $query->fetchAll())]);
@@ -251,6 +305,56 @@ try {
             'telegram_sent' => (bool) ($telegram['ok'] ?? false),
             'telegram_message' => (string) ($telegram['description'] ?? ''),
         ]);
+    }
+
+    if ($action === 'reminders/import' && $method === 'POST') {
+        $rows = $input['rows'] ?? null;
+        if (!is_array($rows) || $rows === [] || count($rows) > 500) {
+            app_json(['ok' => false, 'message' => 'Pilih 1–500 baris pengingat untuk diimpor.'], 422);
+        }
+        $validRows = [];
+        $errors = [];
+        foreach ($rows as $index => $row) {
+            $rowNumber = filter_var(is_array($row) ? ($row['source_row'] ?? null) : null, FILTER_VALIDATE_INT);
+            if ($rowNumber === false || $rowNumber < 1) $rowNumber = $index + 2;
+            if (!is_array($row)) {
+                $errors[] = ['row' => $rowNumber, 'message' => 'Baris tidak terbaca.'];
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            $category = trim((string) ($row['category'] ?? 'Lainnya'));
+            $reminderAt = app_valid_datetime_local((string) ($row['reminder_at'] ?? ''));
+            $note = trim((string) ($row['note'] ?? ''));
+            $problems = [];
+            if ($title === '' || strlen($title) > 120) $problems[] = 'judul wajib diisi (maks. 120 karakter)';
+            if ($category === '' || strlen($category) > 40) $problems[] = 'kategori tidak valid';
+            if ($reminderAt === null) $problems[] = 'tanggal atau waktu tidak valid';
+            if (strlen($note) > 500) $problems[] = 'catatan maksimal 500 karakter';
+            if ($problems !== []) {
+                $errors[] = ['row' => $rowNumber, 'message' => implode('; ', $problems)];
+                continue;
+            }
+            $validRows[] = ['title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'note' => $note];
+        }
+        if ($validRows === []) {
+            app_json(['ok' => false, 'message' => 'Tidak ada pengingat valid untuk diimpor.', 'imported' => 0, 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)], 422);
+        }
+        $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, note, status, created_by, created_at) VALUES (:title, :category, :at, :note, :status, :user, :created)');
+        $pdo->beginTransaction();
+        try {
+            foreach ($validRows as $row) {
+                $insert->execute([
+                    ':title' => $row['title'], ':category' => $row['category'], ':at' => $row['reminder_at'],
+                    ':note' => $row['note'] === '' ? null : $row['note'], ':status' => 'pending',
+                    ':user' => $user['id'], ':created' => $now,
+                ]);
+            }
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $error;
+        }
+        app_json(['ok' => true, 'message' => 'Pengingat berhasil diimpor.', 'imported' => count($validRows), 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)]);
     }
 
     if ($action === 'reminder/toggle' && $method === 'POST') {

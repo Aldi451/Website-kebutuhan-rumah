@@ -8,9 +8,19 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 - **Catat uang masuk & keluar:** kategori, tanggal, nominal Rupiah, dan catatan opsional. Semua anggota rumah berbagi buku catatan yang sama; tiap baris tetap mencantumkan pembuatnya.
 - **Target pengeluaran bulanan:** buat batas belanja untuk bulan yang dipilih dan lihat progres dari total uang keluar.
 - **Pengingat:** simpan judul, tanggal dan jam, kategori, catatan, lalu tandai selesai atau hapus. Contoh: “Ganti oli motor” tanggal 26.
+- **Import massal Excel:** unggah transaksi atau pengingat dari workbook `.xlsx` atau CSV, pratinjau baris yang valid, dan tambahkan sampai 500 baris sekaligus.
 - **Akun admin dan anggota:** admin dapat menambahkan akun anggota dan mengatur ulang kata sandinya. Setiap pengguna dapat mengganti kata sandi akunnya sendiri.
 - **Bot Telegram opsional:** bot menerima kabar saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba.
 - **Bahasa Indonesia dan Rupiah**, responsif untuk HP maupun desktop.
+
+## Import transaksi dan pengingat dari Excel
+
+1. Buka menu **Keuangan** atau **Pengingat**, lalu pilih **Import Excel**.
+2. Unduh template CSV yang sesuai (bisa dibuka dan diedit di Excel), atau pilih workbook `.xlsx` yang sudah ada. Format `.xls` lama perlu disimpan ulang sebagai `.xlsx` atau CSV UTF-8.
+3. Baris pertama pada sheet pertama harus berisi nama kolom. Untuk transaksi, kolom wajibnya **Jenis**, **Nama transaksi**, **Nominal**, dan **Tanggal**; jenis diisi `Pemasukan` atau `Pengeluaran`. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional dan akan menjadi 09:00 bila kosong. Kategori dan catatan bersifat opsional.
+4. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per file, ukuran maksimal 10 MB.
+
+Setiap impor menambahkan catatan baru—mengunggah file yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan Telegram satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
 
 ## Login awal
 
