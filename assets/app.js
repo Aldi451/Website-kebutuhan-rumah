@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const boot = window.RUMARAPI_BOOT || { user: null, csrf: '' };
+  const boot = window.SAKURUMAH_BOOT || { user: null, csrf: '' };
   const appTimeZone = boot.timezone || 'Asia/Jakarta';
   const appRoot = document.getElementById('app');
   const modalRoot = document.getElementById('modal-root');
@@ -9,8 +9,6 @@
   const state = {
     user: boot.user,
     csrf: boot.csrf,
-    showInitialCredentials: Boolean(boot.showInitialCredentials),
-    initialCredentialHint: boot.initialCredentialHint || '',
     page: 'dashboard',
     dashboard: null,
     finance: null,
@@ -126,7 +124,7 @@
   }
 
   async function api(action, data, method = data === undefined ? 'GET' : 'POST') {
-    const options = { method, credentials: 'same-origin', headers: { Accept: 'application/json' } };
+    const options = { method, credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } };
     if (method !== 'GET') {
       options.headers['Content-Type'] = 'application/json';
       options.headers['X-CSRF-Token'] = state.csrf;
@@ -134,16 +132,37 @@
     }
     const [actionName, rawQuery = ''] = action.split('&', 2);
     const endpoint = `/api.php?action=${encodeURIComponent(actionName)}${rawQuery ? `&${rawQuery}` : ''}`;
-    const response = await fetch(endpoint, options);
+    let response = await fetch(endpoint, options);
+
+    // Refresh a stale token once, then transparently retry the user's action.
+    if (response.status === 419 && method !== 'GET' && actionName !== 'csrf') {
+      try {
+        const csrfResponse = await fetch('/api.php?action=csrf', {
+          method: 'GET', credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
+        });
+        const csrfResult = await csrfResponse.json();
+        if (csrfResponse.ok && csrfResult.ok && csrfResult.csrf) {
+          state.csrf = csrfResult.csrf;
+          options.headers['X-CSRF-Token'] = state.csrf;
+          response = await fetch(endpoint, options);
+        }
+      } catch {
+        // The response below will direct the user to reload if token recovery failed.
+      }
+    }
+
     let result;
     try { result = await response.json(); } catch { result = { ok: false, message: 'Respons server tidak terbaca.' }; }
-    if (response.status === 401 && action !== 'login') {
+    if (response.status === 401 && actionName !== 'login') {
       state.user = null;
       state.dashboard = null;
       render();
     }
     if (!response.ok || result.ok === false) {
-      throw new Error(result.message || `Permintaan gagal (${response.status}).`);
+      const message = response.status === 419
+        ? 'Sesi belum tersinkron. Muat ulang halaman lalu coba sekali lagi.'
+        : result.message || `Permintaan gagal (${response.status}).`;
+      throw new Error(message);
     }
     return result;
   }
@@ -203,11 +222,11 @@
   }
 
   function pageTitle(page = state.page) {
-    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'RumaRapi';
+    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'Saku Rumah';
   }
 
   function brandMarkup() {
-    return `<a class="brand" href="#" data-page="dashboard" aria-label="RumaRapi, Ringkasan"><span class="brand-symbol">R.</span><span><span class="brand-name">RumaRapi</span><span class="brand-tag">keuangan rumah lebih tertata</span></span></a>`;
+    return `<a class="brand" href="#" data-page="dashboard" aria-label="Saku Rumah, Ringkasan"><span class="brand-symbol">S.</span><span><span class="brand-name">Saku Rumah</span><span class="brand-tag">keuangan & agenda rumah</span></span></a>`;
   }
 
   function navLink(item, mobile = false) {
@@ -218,37 +237,18 @@
 
   function renderLogin() {
     appRoot.innerHTML = `
-      <main class="auth-page">
-        <div class="auth-shell">
-          <section class="auth-story" aria-label="Tentang RumaRapi">
-            ${brandMarkup()}
-            <div class="auth-story-copy">
-              <span class="eyebrow"><i class="eyebrow-dot"></i> ruang kecil, pikiran lebih lega</span>
-              <h1>Urus rumah jadi lebih tenang.</h1>
-              <p>Catat uang masuk dan keluar, pasang target bulanan, dan simpan pengingat rumah dalam satu dashboard yang rapi.</p>
-              <div class="story-preview" aria-hidden="true">
-                <div class="preview-head"><span>Ringkasan bulan ini</span><strong>Oktober ↗</strong></div>
-                <div class="preview-balance">Rp 4.850.000</div>
-                <div class="preview-mini-row"><div class="preview-mini"><small>Uang masuk</small><strong>Rp 8,2 jt</strong></div><div class="preview-mini"><small>Uang keluar</small><strong>Rp 3,3 jt</strong></div></div>
-                <div class="preview-spark"><span style="height:39%"></span><span style="height:70%"></span><span style="height:49%"></span><span style="height:86%"></span><span style="height:62%"></span><span style="height:100%"></span><span style="height:76%"></span><span style="height:92%"></span></div>
-              </div>
-            </div>
-            <p class="auth-footnote">Privat untuk keluarga. Data tersimpan di server rumahmu.</p>
-          </section>
-          <section class="auth-form-wrap">
-            <form class="auth-form" data-form="login" autocomplete="on">
-              ${brandMarkup()}
-              <h2>Selamat datang 👋</h2>
-              <p class="auth-intro">Masuk untuk lanjut merapikan keuangan rumahmu.</p>
-              <div class="field"><label for="login-username">Nama pengguna</label><input class="input" id="login-username" name="username" type="text" placeholder="Contoh: ALDI" autocomplete="username" autocapitalize="none" required></div>
-              <div class="field" style="margin-top:15px"><label for="login-password">Kata sandi</label><input class="input" id="login-password" name="password" type="password" placeholder="Masukkan kata sandi" autocomplete="current-password" required></div>
-              <p class="error-text" data-form-error hidden style="margin:12px 0 0"></p>
-              <button class="btn" type="submit" style="width:100%;min-height:46px;margin-top:21px">Masuk ke dashboard ${icon('arrowRight')}</button>
-              ${state.showInitialCredentials ? `<div class="auth-hint"><span class="hint-icon">${icon('info')}</span><span>${escapeHtml(state.initialCredentialHint)}</span></div>` : `<div class="auth-hint"><span class="hint-icon">${icon('info')}</span><span>Belum punya akun? Minta username dan kata sandi kepada admin rumah.</span></div>`}
-              <p class="auth-footer">RumaRapi · privat untuk kebutuhan rumahmu</p>
-            </form>
-          </section>
-        </div>
+      <main class="login-page">
+        <section class="login-card" aria-labelledby="login-title">
+          <div class="login-brand">${brandMarkup()}</div>
+          <h1 id="login-title" class="sr-only">Masuk ke Saku Rumah</h1>
+          <p class="login-caption">Satu tempat untuk keuangan dan pengingat rumah.</p>
+          <form class="login-form" data-form="login" autocomplete="on">
+            <div class="field"><label for="login-username">User ID</label><input class="input" id="login-username" name="username" type="text" placeholder="Masukkan User ID" autocomplete="username" autocapitalize="none" required></div>
+            <div class="field"><label for="login-password">Password</label><input class="input" id="login-password" name="password" type="password" placeholder="Masukkan password" autocomplete="current-password" required></div>
+            <p class="error-text" data-form-error hidden></p>
+            <button class="btn login-submit" type="submit">Login</button>
+          </form>
+        </section>
       </main>`;
   }
 
@@ -384,7 +384,7 @@
     const reminderRows = (data.reminders || []).map((item) => dashboardReminderRow(item)).join('');
     const activePageHeading = `
       <div class="page-heading">
-        <div><span class="eyebrow"><i class="eyebrow-dot"></i> ringkasan rumah</span><h1>${todayGreeting()}, ${escapeHtml((state.user?.name || 'Aldi').split(' ')[0])} 👋</h1><p>Ini ringkasan keuangan dan agenda rumahmu untuk ${escapeHtml(monthName)}.</p></div>
+        <div><span class="eyebrow"><i class="eyebrow-dot"></i> ringkasan rumah</span><h1>${todayGreeting()}, ${escapeHtml((state.user?.name || 'kamu').split(' ')[0])} 👋</h1><p>Ini ringkasan keuangan dan agenda rumahmu untuk ${escapeHtml(monthName)}.</p></div>
         <div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Catat transaksi</button><button class="btn" type="button" data-action="open-reminder">${icon('plus')} Buat pengingat</button></div>
       </div>`;
     const chartBars = chart.map((item) => {
@@ -503,7 +503,7 @@
     const telegram = state.settings?.telegram || { connected: false, chat_id: '', token_hint: '' };
     const isAdmin = state.user?.role === 'admin';
     const telegramPanel = isAdmin ? `
-        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. RumaRapi akan mengirim pesan tes dan kabar saat pengingat dibuat.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
+        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Saku Rumah akan mengirim pesan tes dan kabar saat pengingat dibuat.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Status koneksi bot untuk pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? 'Bot rumah sudah tersambung.' : 'Bot Telegram belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan bot dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p></section>`;
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke Telegram' : ''}.</p></div></div>
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
@@ -686,7 +686,7 @@
         state.user = result.user;
         state.csrf = result.csrf;
         state.page = 'dashboard';
-        showToast(`Halo, ${result.user.name}! Selamat datang di RumaRapi.`);
+        showToast(`Halo, ${result.user.name}! Selamat datang di Saku Rumah.`);
         await render();
       } else if (kind === 'transaction') {
         const result = await api('transaction/create', { ...data, amount: Number(data.amount) });
@@ -724,8 +724,6 @@
         if (data.new_password !== data.confirm_password) throw new Error('Ulangan kata sandi baru belum cocok.');
         const result = await api('password/change', { current_password: data.current_password, new_password: data.new_password });
         form.reset();
-        state.showInitialCredentials = false;
-        state.initialCredentialHint = '';
         showToast(result.message);
       } else if (kind === 'telegram-save') {
         const result = await api('telegram/save', { token: data.token, chat_id: data.chat_id });

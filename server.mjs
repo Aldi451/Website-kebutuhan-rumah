@@ -129,8 +129,7 @@ server.on('clientError', (_error, socket) => {
 });
 
 server.listen(port, '0.0.0.0', () => {
-  console.log(`RumaRapi preview siap di http://0.0.0.0:${port}`);
-  console.log('Login awal: ALDI / admin123');
+  console.log(`Saku Rumah preview siap di http://0.0.0.0:${port}`);
 });
 
 async function shutdown() {

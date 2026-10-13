@@ -38,9 +38,9 @@ try {
         }
     }
 
-    echo "RumaRapi reminder check selesai. Terkirim: {$sent}; belum terkirim: {$failed}.\n";
+    echo "Saku Rumah reminder check selesai. Terkirim: {$sent}; belum terkirim: {$failed}.\n";
 } catch (Throwable $error) {
-    error_log('[RumaRapi cron] ' . $error->getMessage());
+    error_log('[Saku Rumah cron] ' . $error->getMessage());
     http_response_code(500);
     echo "Pemeriksaan reminder gagal. Periksa konfigurasi database dan server.\n";
 }

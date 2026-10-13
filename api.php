@@ -7,6 +7,10 @@ app_start_session();
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $action = trim((string) ($_GET['action'] ?? ''));
 $input = [];
+if ($action === 'csrf' && $method === 'GET') {
+    app_json(['ok' => true, 'csrf' => $_SESSION['csrf_token']]);
+}
+
 if ($method !== 'GET') {
     $raw = file_get_contents('php://input');
     $decoded = json_decode($raw === false ? '' : $raw, true);
@@ -56,7 +60,7 @@ try {
     }
 
     if ($action === 'health' && $method === 'GET') {
-        app_json(['ok' => true, 'app' => 'Rumahku']);
+        app_json(['ok' => true, 'app' => 'Saku Rumah']);
     }
 
     $user = app_require_user();
@@ -240,7 +244,7 @@ try {
             ':note' => $note === '' ? null : $note, ':status' => 'pending',
             ':user' => $user['id'], ':created' => $now,
         ]);
-        $telegram = app_send_telegram("🔔 Pengingat baru • Rumahku\n\n{$title}\n" . date('d M Y, H.i', strtotime($reminderAt)) . " WIB\nKategori: {$category}\nDibuat oleh: {$user['display_name']}" . ($note !== '' ? "\n\nCatatan: {$note}" : ''));
+        $telegram = app_send_telegram("🔔 Pengingat baru • Saku Rumah\n\n{$title}\n" . date('d M Y, H.i', strtotime($reminderAt)) . " WIB\nKategori: {$category}\nDibuat oleh: {$user['display_name']}" . ($note !== '' ? "\n\nCatatan: {$note}" : ''));
         app_json([
             'ok' => true,
             'message' => 'Pengingat berhasil disimpan.',
@@ -408,7 +412,7 @@ try {
         app_set_setting('telegram_bot_token', $token);
         app_set_setting('telegram_chat_id', $chatId);
         $botName = (string) ($check['result']['username'] ?? 'bot');
-        $test = app_send_telegram("✅ Rumahku berhasil terhubung ke @{$botName}.\nNotifikasi akan dikirim saat pengingat baru dibuat.");
+        $test = app_send_telegram("✅ Saku Rumah berhasil terhubung ke @{$botName}.\nNotifikasi akan dikirim saat pengingat baru dibuat.");
         app_json([
             'ok' => true,
             'message' => ($test['ok'] ?? false) ? "Bot @{$botName} tersambung. Pesan percobaan sudah dikirim." : "Token tersimpan, tetapi pesan percobaan gagal: " . (string) ($test['description'] ?? 'cek Chat ID dan izin bot.'),
@@ -418,7 +422,7 @@ try {
 
     if ($action === 'telegram/test' && $method === 'POST') {
         app_require_admin($user);
-        $test = app_send_telegram("✅ Ini pesan percobaan dari Rumahku.\nBot dan Chat ID kamu sudah terhubung.");
+        $test = app_send_telegram("✅ Ini pesan percobaan dari Saku Rumah.\nBot dan Chat ID kamu sudah terhubung.");
         if (!($test['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($test['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -434,7 +438,7 @@ try {
 
     app_json(['ok' => false, 'message' => 'Aksi tidak dikenal.'], 404);
 } catch (Throwable $error) {
-    error_log('[Rumahku] ' . $error->getMessage());
+    error_log('[Saku Rumah] ' . $error->getMessage());
     app_json(['ok' => false, 'message' => 'Terjadi kendala di server. Periksa konfigurasi database lalu coba lagi.'], 500);
 }
 

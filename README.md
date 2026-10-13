@@ -1,4 +1,4 @@
-# RumaRapi — kebutuhan rumah dalam satu dashboard
+# Saku Rumah — kebutuhan rumah dalam satu dashboard
 
 Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan aksen hijau-teal. Fokusnya untuk mencatat keuangan rumah dan menyimpan pengingat keluarga.
 
