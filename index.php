@@ -32,7 +32,7 @@ try {
         window.APP_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
     <script defer src="/assets/importer.js?v=1"></script>
-    <script defer src="/assets/app.js?v=7"></script>
+    <script defer src="/assets/app.js?v=8"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">

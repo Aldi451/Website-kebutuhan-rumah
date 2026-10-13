@@ -836,7 +836,7 @@
     const target = Number(data.target || 0);
     const spent = Number(data.summary?.expense || 0);
     const progress = target ? Math.min(100, Math.round(spent / target * 100)) : 0;
-    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions finance-import-actions"><button class="btn btn-secondary" type="button" data-page="report">${icon('chart')} Laporan</button><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="transactions">${icon('upload')} Import Excel</button><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
+    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions finance-import-actions"><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="transactions">${icon('upload')} Import Excel</button><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
       <div class="finance-filter" style="margin:-5px 0 16px"><label class="sr-only" for="finance-month">Pilih bulan</label><input class="month-input" type="month" id="finance-month" data-month-filter value="${escapeHtml(month)}"><span class="text-muted" style="font-size:10px">${escapeHtml(monthLabel(month))}</span></div>
       <div class="grid finance-top-grid">
         <article class="card finance-metric"><span class="stat-label"><span class="legend-dot"></span> Total uang masuk</span><div class="stat-value" style="color:#328269">${money(data.summary?.income || 0)}</div></article>
@@ -1083,7 +1083,7 @@
 
   function openTransactionModal(kind = 'expense') {
     const selected = kind === 'income' ? 'income' : 'expense';
-    const categories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Bensin', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
+    const categories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
     const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
     openModal(selected === 'income' ? 'Catat uang masuk' : 'Catat uang keluar', 'Biar arus kas rumah tetap kebaca dan nggak mengandalkan ingatan.', `
       <form class="modal-body" data-form="transaction"><div class="form-grid">
@@ -1257,7 +1257,7 @@
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;
-    const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Bensin', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
+    const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
     category.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
   });
 
