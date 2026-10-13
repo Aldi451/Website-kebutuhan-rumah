@@ -159,6 +159,185 @@ try {
         ]);
     }
 
+    if ($action === 'report' && $method === 'GET') {
+        $period = trim((string) ($_GET['period'] ?? 'month_to_date'));
+        $allowedPeriods = ['today', 'month_to_date', 'last_month', 'year_to_date', 'last_year', 'custom'];
+        if (!in_array($period, $allowedPeriods, true)) {
+            app_json(['ok' => false, 'message' => 'Periode laporan tidak dikenali.'], 422);
+        }
+        $kind = trim((string) ($_GET['kind'] ?? 'all'));
+        if (!in_array($kind, ['all', 'income', 'expense'], true)) {
+            app_json(['ok' => false, 'message' => 'Jenis transaksi tidak dikenali.'], 422);
+        }
+        $category = trim((string) ($_GET['category'] ?? ''));
+        if (strlen($category) > 40) {
+            app_json(['ok' => false, 'message' => 'Nama kategori terlalu panjang.'], 422);
+        }
+        $compare = (string) ($_GET['compare'] ?? '1') !== '0';
+        $timezone = new DateTimeZone(date_default_timezone_get());
+        $today = new DateTimeImmutable('today', $timezone);
+        $year = (int) $today->format('Y');
+        $currentStart = $today;
+        $currentEnd = $today->modify('+1 day');
+        $comparisonStart = null;
+        $comparisonEnd = null;
+        $periodLabel = '';
+        $comparisonLabel = '';
+
+        if ($period === 'today') {
+            $comparisonStart = $today->modify('-1 day');
+            $comparisonEnd = $today;
+            $periodLabel = 'Hari ini';
+            $comparisonLabel = 'Kemarin';
+        } elseif ($period === 'month_to_date') {
+            $currentStart = $today->modify('first day of this month');
+            $currentEnd = $today->modify('+1 day');
+            $comparisonStart = $currentStart->modify('-1 month');
+            $comparisonDay = min((int) $today->format('j'), (int) $comparisonStart->format('t'));
+            $comparisonEnd = $comparisonStart->setDate(
+                (int) $comparisonStart->format('Y'),
+                (int) $comparisonStart->format('n'),
+                $comparisonDay
+            )->modify('+1 day');
+            $periodLabel = 'Bulan ini sampai hari ini';
+            $comparisonLabel = 'Bulan lalu sampai tanggal yang sepadan';
+        } elseif ($period === 'last_month') {
+            $currentStart = $today->modify('first day of last month');
+            $currentEnd = $today->modify('first day of this month');
+            $comparisonStart = $currentStart->modify('-1 month');
+            $comparisonEnd = $currentStart;
+            $periodLabel = 'Bulan lalu';
+            $comparisonLabel = 'Dua bulan lalu';
+        } elseif ($period === 'year_to_date') {
+            $currentStart = $today->setDate($year, 1, 1);
+            $currentEnd = $today->modify('+1 day');
+            $previousYearStart = $today->setDate($year - 1, 1, 1);
+            $comparisonStart = $previousYearStart;
+            $comparisonMonthStart = $previousYearStart->setDate($year - 1, (int) $today->format('n'), 1);
+            $comparisonDay = min((int) $today->format('j'), (int) $comparisonMonthStart->format('t'));
+            $comparisonEnd = $comparisonMonthStart->setDate($year - 1, (int) $today->format('n'), $comparisonDay)->modify('+1 day');
+            $periodLabel = 'Tahun ini sampai hari ini';
+            $comparisonLabel = 'Tahun lalu sampai tanggal yang sepadan';
+        } elseif ($period === 'last_year') {
+            $currentStart = $today->setDate($year - 1, 1, 1);
+            $currentEnd = $today->setDate($year, 1, 1);
+            $comparisonStart = $today->setDate($year - 2, 1, 1);
+            $comparisonEnd = $currentStart;
+            $periodLabel = 'Tahun lalu';
+            $comparisonLabel = 'Dua tahun lalu';
+        } else {
+            $startText = trim((string) ($_GET['start'] ?? ''));
+            $endText = trim((string) ($_GET['end'] ?? ''));
+            if (!app_valid_date($startText) || !app_valid_date($endText)) {
+                app_json(['ok' => false, 'message' => 'Tanggal awal dan akhir laporan wajib diisi dengan benar.'], 422);
+            }
+            $currentStart = new DateTimeImmutable($startText, $timezone);
+            $inclusiveEnd = new DateTimeImmutable($endText, $timezone);
+            if ($inclusiveEnd < $currentStart) {
+                app_json(['ok' => false, 'message' => 'Tanggal akhir tidak boleh sebelum tanggal awal.'], 422);
+            }
+            $currentEnd = $inclusiveEnd->modify('+1 day');
+            $duration = (int) $currentStart->diff($currentEnd)->days;
+            if ($duration < 1 || $duration > 3660) {
+                app_json(['ok' => false, 'message' => 'Rentang laporan maksimal 10 tahun.'], 422);
+            }
+            $comparisonEnd = $currentStart;
+            $comparisonStart = $currentStart->sub(new DateInterval('P' . $duration . 'D'));
+            $periodLabel = 'Rentang khusus';
+            $comparisonLabel = 'Rentang sebelumnya dengan durasi yang sama';
+        }
+
+        $filterSql = '';
+        $filterParams = [];
+        if ($category !== '') {
+            $filterSql .= ' AND category = :category';
+            $filterParams[':category'] = $category;
+        }
+        if ($kind !== 'all') {
+            $filterSql .= ' AND kind = :kind';
+            $filterParams[':kind'] = $kind;
+        }
+
+        $summaryStatement = $pdo->prepare("SELECT kind, COUNT(*) AS records, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} GROUP BY kind");
+        $summaryFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($summaryStatement, $filterParams): array {
+            $params = [':start' => $start->format('Y-m-d'), ':end' => $end->format('Y-m-d')];
+            foreach ($filterParams as $key => $value) {
+                $params[$key] = $value;
+            }
+            $summaryStatement->execute($params);
+            $summary = ['income' => 0, 'expense' => 0, 'income_count' => 0, 'expense_count' => 0, 'count' => 0];
+            foreach ($summaryStatement->fetchAll() as $row) {
+                $rowKind = (string) $row['kind'];
+                if (!in_array($rowKind, ['income', 'expense'], true)) {
+                    continue;
+                }
+                $summary[$rowKind] = (int) $row['total'];
+                $summary[$rowKind . '_count'] = (int) $row['records'];
+                $summary['count'] += (int) $row['records'];
+            }
+            $summary['net'] = $summary['income'] - $summary['expense'];
+            return $summary;
+        };
+
+        $categoryStatement = $pdo->prepare("SELECT category, COUNT(*) AS records, COALESCE(SUM(CASE WHEN kind = 'income' THEN amount ELSE 0 END), 0) AS income, COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount ELSE 0 END), 0) AS expense FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} GROUP BY category");
+        $categoriesFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($categoryStatement, $filterParams): array {
+            $params = [':start' => $start->format('Y-m-d'), ':end' => $end->format('Y-m-d')];
+            foreach ($filterParams as $key => $value) {
+                $params[$key] = $value;
+            }
+            $categoryStatement->execute($params);
+            $categories = [];
+            foreach ($categoryStatement->fetchAll() as $row) {
+                $name = (string) $row['category'];
+                $categories[$name] = [
+                    'income' => (int) $row['income'],
+                    'expense' => (int) $row['expense'],
+                    'count' => (int) $row['records'],
+                ];
+            }
+            return $categories;
+        };
+
+        $currentSummary = $summaryFor($currentStart, $currentEnd);
+        $currentCategories = $categoriesFor($currentStart, $currentEnd);
+        $previousSummary = $compare ? $summaryFor($comparisonStart, $comparisonEnd) : null;
+        $previousCategories = $compare ? $categoriesFor($comparisonStart, $comparisonEnd) : [];
+        $categoryNames = array_values(array_unique(array_merge(array_keys($currentCategories), array_keys($previousCategories))));
+        usort($categoryNames, static fn (string $a, string $b): int => strcasecmp($a, $b));
+        $categoryRows = [];
+        foreach ($categoryNames as $name) {
+            $current = $currentCategories[$name] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
+            $previous = $previousCategories[$name] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
+            $categoryRows[] = [
+                'category' => $name,
+                'income' => $current['income'],
+                'expense' => $current['expense'],
+                'count' => $current['count'],
+                'previous' => $compare ? $previous : null,
+            ];
+        }
+        $categoryOptions = $pdo->query("SELECT DISTINCT category FROM transactions WHERE TRIM(category) <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+        $rangeData = static function (DateTimeImmutable $start, DateTimeImmutable $end, string $label): array {
+            return [
+                'label' => $label,
+                'start' => $start->format('Y-m-d'),
+                'end' => $end->modify('-1 day')->format('Y-m-d'),
+                'days' => (int) $start->diff($end)->days,
+            ];
+        };
+
+        app_json([
+            'ok' => true,
+            'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare],
+            'current_period' => $rangeData($currentStart, $currentEnd, $periodLabel),
+            'previous_period' => $compare ? $rangeData($comparisonStart, $comparisonEnd, $comparisonLabel) : null,
+            'summary' => $currentSummary,
+            'previous_summary' => $previousSummary,
+            'categories' => $categoryRows,
+            'category_options' => array_map('strval', $categoryOptions),
+        ]);
+    }
+
     if ($action === 'transaction/create' && $method === 'POST') {
         $kind = (string) ($input['kind'] ?? '');
         $title = trim((string) ($input['title'] ?? ''));

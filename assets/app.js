@@ -27,6 +27,14 @@
     reminderFilter: 'all',
     members: null,
     settings: null,
+    report: null,
+    reportKey: '',
+    reportPeriod: 'month_to_date',
+    reportCategory: '',
+    reportKind: 'all',
+    reportCompare: true,
+    reportCustomStart: `${currentMonth()}-01`,
+    reportCustomEnd: localDateValue(),
     importType: null,
     importPreview: null,
   };
@@ -62,11 +70,13 @@
     moon: '<path d="M20.2 15.7A8.6 8.6 0 0 1 8.3 3.8a8.8 8.8 0 1 0 11.9 11.9Z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
   };
 
   const NAV_ITEMS = [
     { id: 'dashboard', label: 'Ringkasan', icon: 'home' },
     { id: 'finance', label: 'Keuangan', icon: 'wallet' },
+    { id: 'report', label: 'Laporan', icon: 'chart' },
     { id: 'reminders', label: 'Pengingat', icon: 'bell' },
     { id: 'members', label: 'Anggota', icon: 'users', admin: true },
   ];
@@ -517,6 +527,8 @@
         state.reminderFilter = 'all';
       } else {
         state.finance = null;
+        state.report = null;
+        state.reportKey = '';
         state.transactionFilter = 'all';
         const latestDate = preview.valid.reduce((latest, item) => item.data.date > latest ? item.data.date : latest, '');
         if (latestDate) state.financeMonth = latestDate.slice(0, 7);
@@ -537,7 +549,7 @@
   }
 
   function pageTitle(page = state.page) {
-    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'Ringkasan';
+    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', report: 'Laporan keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'Ringkasan';
   }
 
   function brandMarkup() {
@@ -633,6 +645,10 @@
         state.dashboard = await api('dashboard');
       } else if (state.page === 'finance') {
         state.finance = await api(`transactions&month=${encodeURIComponent(state.financeMonth)}`);
+      } else if (state.page === 'report') {
+        const reportKey = reportRequestKey();
+        state.report = await api(`report&${reportKey}`);
+        state.reportKey = reportKey;
       } else if (state.page === 'reminders') {
         state.reminders = await api('reminders');
       } else if (state.page === 'members') {
@@ -651,9 +667,24 @@
     }
   }
 
+  function reportRequestKey() {
+    const params = new URLSearchParams({
+      period: state.reportPeriod,
+      kind: state.reportKind,
+      compare: state.reportCompare ? '1' : '0',
+    });
+    if (state.reportCategory) params.set('category', state.reportCategory);
+    if (state.reportPeriod === 'custom') {
+      params.set('start', state.reportCustomStart);
+      params.set('end', state.reportCustomEnd);
+    }
+    return params.toString();
+  }
+
   function cacheReadyForPage() {
     return (state.page === 'dashboard' && !!state.dashboard) ||
       (state.page === 'finance' && !!state.finance && state.finance.month === state.financeMonth) ||
+      (state.page === 'report' && !!state.report && state.reportKey === reportRequestKey()) ||
       (state.page === 'reminders' && !!state.reminders) ||
       (state.page === 'members' && !!state.members) ||
       (state.page === 'settings' && !!state.settings);
@@ -681,6 +712,7 @@
     syncReminderBadges();
     if (state.page === 'dashboard') content.innerHTML = dashboardMarkup();
     else if (state.page === 'finance') content.innerHTML = financeMarkup();
+    else if (state.page === 'report') content.innerHTML = reportMarkup();
     else if (state.page === 'reminders') content.innerHTML = remindersMarkup();
     else if (state.page === 'members') content.innerHTML = membersMarkup();
     else if (state.page === 'settings') content.innerHTML = settingsMarkup();
@@ -702,6 +734,30 @@
       state.finance = null;
       refreshPage(true);
     });
+    content.querySelectorAll('[data-report-filter]').forEach((control) => control.addEventListener('change', () => {
+      const filter = control.dataset.reportFilter;
+      if (filter === 'period') state.reportPeriod = control.value;
+      else if (filter === 'category') state.reportCategory = control.value;
+      else if (filter === 'kind') state.reportKind = control.value;
+      else if (filter === 'compare') state.reportCompare = control.checked;
+      else if (filter === 'start') state.reportCustomStart = control.value;
+      else if (filter === 'end') state.reportCustomEnd = control.value;
+
+      const errorNode = content.querySelector('[data-report-error]');
+      if (state.reportPeriod === 'custom' && (!state.reportCustomStart || !state.reportCustomEnd || state.reportCustomStart > state.reportCustomEnd)) {
+        if (errorNode) {
+          errorNode.textContent = !state.reportCustomStart || !state.reportCustomEnd
+            ? 'Lengkapi tanggal awal dan akhir.'
+            : 'Tanggal akhir tidak boleh sebelum tanggal awal.';
+          errorNode.hidden = false;
+        }
+        return;
+      }
+      if (errorNode) errorNode.hidden = true;
+      state.report = null;
+      state.reportKey = '';
+      refreshPage(true);
+    }));
   }
 
   function dashboardMarkup() {
@@ -780,7 +836,7 @@
     const target = Number(data.target || 0);
     const spent = Number(data.summary?.expense || 0);
     const progress = target ? Math.min(100, Math.round(spent / target * 100)) : 0;
-    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions finance-import-actions"><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="transactions">${icon('upload')} Import Excel</button><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
+    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> uang rumah</span><h1>Keuangan</h1><p>Semua uang masuk dan keluar, dicatat tanpa ribet.</p></div><div class="heading-actions finance-import-actions"><button class="btn btn-secondary" type="button" data-page="report">${icon('chart')} Laporan</button><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="transactions">${icon('upload')} Import Excel</button><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Uang masuk</button><button class="btn" type="button" data-action="open-transaction" data-kind="expense">${icon('plus')} Uang keluar</button></div></div>
       <div class="finance-filter" style="margin:-5px 0 16px"><label class="sr-only" for="finance-month">Pilih bulan</label><input class="month-input" type="month" id="finance-month" data-month-filter value="${escapeHtml(month)}"><span class="text-muted" style="font-size:10px">${escapeHtml(monthLabel(month))}</span></div>
       <div class="grid finance-top-grid">
         <article class="card finance-metric"><span class="stat-label"><span class="legend-dot"></span> Total uang masuk</span><div class="stat-value" style="color:#328269">${money(data.summary?.income || 0)}</div></article>
@@ -795,6 +851,123 @@
           <form class="target-input-row" data-form="target"><input type="hidden" name="month" value="${escapeHtml(month)}"><div class="field"><label for="target-amount">Nominal target bulan ini</label><div class="input-wrap"><input class="input" id="target-amount" name="amount" type="number" min="1" step="1000" value="${target || ''}" placeholder="Contoh: 5000000" required></div></div><button class="btn btn-soft" type="submit" style="width:100%;margin-top:11px">${target ? 'Perbarui target' : 'Simpan target'}</button><p class="target-footnote">Persentase target dihitung dari jumlah uang keluar yang dicatat bulan ini.</p></form>
         </aside>
       </div>`;
+  }
+
+  function reportRangeLabel(range) {
+    if (!range?.start || !range?.end) return '—';
+    const start = dateLabel(range.start, { day: 'numeric', month: 'short', year: 'numeric' });
+    const end = dateLabel(range.end, { day: 'numeric', month: 'short', year: 'numeric' });
+    return range.start === range.end ? start : `${start} – ${end}`;
+  }
+
+  function reportPercentChange(current, previous) {
+    const currentValue = Number(current || 0);
+    const previousValue = Number(previous || 0);
+    if (previousValue === 0) return currentValue === 0 ? '—' : 'Baru';
+    const percent = (currentValue - previousValue) / Math.abs(previousValue) * 100;
+    const prefix = percent > 0 ? '+' : '';
+    return `${prefix}${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(percent)}%`;
+  }
+
+  function signedMoney(value) {
+    const amount = Number(value || 0);
+    return `${amount > 0 ? '+' : amount < 0 ? '−' : ''}${money(Math.abs(amount))}`;
+  }
+
+  function reportCategoryValue(item, kind) {
+    if (!item) return 0;
+    if (kind === 'income') return Number(item.income || 0);
+    if (kind === 'expense') return Number(item.expense || 0);
+    return Number(item.income || 0) + Number(item.expense || 0);
+  }
+
+  function reportComparisonMetric(label, current, previous, formatter = money, invert = false) {
+    const currentValue = Number(current || 0);
+    const previousValue = Number(previous || 0);
+    const difference = currentValue - previousValue;
+    const trend = difference === 0 ? 'flat' : ((difference > 0) === !invert) ? 'down' : 'up';
+    const formattedDifference = formatter === money
+      ? signedMoney(difference)
+      : `${difference > 0 ? '+' : difference < 0 ? '−' : ''}${new Intl.NumberFormat('id-ID').format(Math.abs(difference))}`;
+    return `<article class="report-comparison-metric"><span>${escapeHtml(label)}</span><strong class="${trend}">${formattedDifference}</strong><small>${formatter(previousValue)} → ${formatter(currentValue)} <b>${escapeHtml(reportPercentChange(currentValue, previousValue))}</b></small></article>`;
+  }
+
+  function reportMarkup() {
+    const data = state.report || {};
+    const summary = data.summary || { income: 0, expense: 0, net: 0, count: 0 };
+    const previous = data.previous_summary;
+    const currentPeriod = data.current_period || {};
+    const previousPeriod = data.previous_period;
+    const categoryOptions = Array.isArray(data.category_options) ? [...data.category_options] : [];
+    if (state.reportCategory && !categoryOptions.includes(state.reportCategory)) categoryOptions.push(state.reportCategory);
+    categoryOptions.sort((a, b) => a.localeCompare(b, 'id'));
+    const categoryOptionMarkup = categoryOptions.map((category) => `<option value="${escapeHtml(category)}"${state.reportCategory === category ? ' selected' : ''}>${escapeHtml(category)}</option>`).join('');
+    const customRangeMarkup = state.reportPeriod === 'custom' ? `<div class="report-custom-range"><div class="field"><label for="report-start">Dari tanggal</label><input class="input" id="report-start" type="date" data-report-filter="start" value="${escapeHtml(state.reportCustomStart)}" required></div><span class="report-range-separator">sampai</span><div class="field"><label for="report-end">Sampai tanggal</label><input class="input" id="report-end" type="date" data-report-filter="end" value="${escapeHtml(state.reportCustomEnd)}" required></div></div>` : '';
+    const currentRange = reportRangeLabel(currentPeriod);
+    const previousRange = reportRangeLabel(previousPeriod);
+    const averageDailySpend = Number(currentPeriod.days) > 0 ? Number(summary.expense || 0) / Number(currentPeriod.days) : 0;
+    const previousAverageDailySpend = Number(previousPeriod?.days) > 0 ? Number(previous?.expense || 0) / Number(previousPeriod.days) : 0;
+    const categories = (Array.isArray(data.categories) ? [...data.categories] : []).sort((a, b) => reportCategoryValue(b, state.reportKind) - reportCategoryValue(a, state.reportKind));
+    const categoryMax = Math.max(1, ...categories.map((item) => reportCategoryValue(item, state.reportKind)));
+    const categoryRows = categories.map((item) => {
+      const currentValue = reportCategoryValue(item, state.reportKind);
+      const previousValue = reportCategoryValue(item.previous, state.reportKind);
+      const width = Math.max(3, Math.min(100, currentValue / categoryMax * 100));
+      const categoryName = item.category || 'Tanpa kategori';
+      const previousDetail = state.reportCompare
+        ? `<small>Sebelumnya ${money(previousValue)} <b>${signedMoney(currentValue - previousValue)} · ${escapeHtml(reportPercentChange(currentValue, previousValue))}</b></small>`
+        : `<small>${Number(item.count || 0)} transaksi pada periode ini</small>`;
+      return `<div class="report-category-row"><div class="report-category-main"><div class="report-category-name"><strong>${escapeHtml(categoryName)}</strong><span>${Number(item.count || 0)} transaksi</span></div><div class="report-category-bar"><span style="width:${width}%"></span></div></div><div class="report-category-amount"><strong>${money(currentValue)}</strong>${previousDetail}</div></div>`;
+    }).join('');
+    const categoryMeasureLabel = state.reportKind === 'income' ? 'Uang masuk' : state.reportKind === 'expense' ? 'Uang keluar' : 'Total arus tercatat (masuk + keluar)';
+    const comparisonMarkup = state.reportCompare && previous ? `<section class="card report-comparison-card"><div class="card-head"><div><h2 class="card-title">Perbandingan periode</h2><p class="card-subtitle">${escapeHtml(currentRange)} <span>vs</span> ${escapeHtml(previousRange)} · ${Number(currentPeriod.days || 0)} hari dibanding ${Number(previousPeriod?.days || 0)} hari</p></div><span class="report-comparison-icon">${icon('repeat')}</span></div><div class="report-comparison-grid">${reportComparisonMetric('Uang masuk', summary.income, previous.income)}${reportComparisonMetric('Uang keluar', summary.expense, previous.expense, money, true)}${reportComparisonMetric('Selisih tercatat', summary.net, previous.net)}${reportComparisonMetric('Jumlah transaksi', summary.count, previous.count, (value) => new Intl.NumberFormat('id-ID').format(value))}</div><p class="report-accuracy-note">${state.reportPeriod === 'custom' ? 'Rentang pembanding memakai jumlah hari yang sama tepat sebelum tanggal awal.' : 'Perbandingan memakai rentang yang sepadan; bulan/tahun berjalan dibanding sampai tanggal yang sama.'} Rata-rata uang keluar per hari: <strong>${money(averageDailySpend)}</strong> (sebelumnya ${money(previousAverageDailySpend)}).</p></section>` : '';
+
+    return `<div class="page-heading report-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> analisis rumah</span><h1>Laporan keuangan</h1><p>Telusuri uang masuk dan keluar berdasarkan kategori, lalu bandingkan dengan periode yang sepadan.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="download-report"${data.summary ? '' : ' disabled'}>${icon('download')} Unduh CSV</button></div></div>
+      <section class="card report-filter-card"><div class="report-filter-grid"><div class="field"><label for="report-period">Periode laporan</label><select class="select" id="report-period" data-report-filter="period"><option value="today"${state.reportPeriod === 'today' ? ' selected' : ''}>Hari ini</option><option value="month_to_date"${state.reportPeriod === 'month_to_date' ? ' selected' : ''}>Bulan ini sampai hari ini</option><option value="last_month"${state.reportPeriod === 'last_month' ? ' selected' : ''}>Bulan lalu</option><option value="year_to_date"${state.reportPeriod === 'year_to_date' ? ' selected' : ''}>Tahun ini sampai hari ini</option><option value="last_year"${state.reportPeriod === 'last_year' ? ' selected' : ''}>Tahun lalu</option><option value="custom"${state.reportPeriod === 'custom' ? ' selected' : ''}>Rentang tanggal khusus</option></select></div><div class="field"><label for="report-kind">Jenis transaksi</label><select class="select" id="report-kind" data-report-filter="kind"><option value="all"${state.reportKind === 'all' ? ' selected' : ''}>Semua jenis</option><option value="income"${state.reportKind === 'income' ? ' selected' : ''}>Uang masuk</option><option value="expense"${state.reportKind === 'expense' ? ' selected' : ''}>Uang keluar</option></select></div><div class="field"><label for="report-category">Kategori</label><select class="select" id="report-category" data-report-filter="category"><option value="">Semua kategori</option>${categoryOptionMarkup}</select></div></div>${customRangeMarkup}<div class="report-filter-footer"><label class="report-compare-toggle"><input type="checkbox" data-report-filter="compare"${state.reportCompare ? ' checked' : ''}><span class="report-toggle-track" aria-hidden="true"></span><span>Bandingkan dengan periode sebelumnya</span></label><span class="report-period-meta">${escapeHtml(currentPeriod.label || 'Memuat periode…')} · ${escapeHtml(currentRange)}${state.reportCompare && previousPeriod ? ` <span>dibanding</span> ${escapeHtml(previousRange)}` : ''}</span></div><p class="error-text report-filter-error" data-report-error hidden></p></section>
+      <div class="grid report-summary-grid"><article class="card report-stat-card"><span class="report-stat-label"><i class="legend-dot"></i> Uang masuk</span><strong>${money(summary.income)}</strong><small>${Number(summary.income_count || 0)} transaksi masuk</small></article><article class="card report-stat-card"><span class="report-stat-label"><i class="legend-dot expense"></i> Uang keluar</span><strong>${money(summary.expense)}</strong><small>Rata-rata ${money(averageDailySpend)} per hari</small></article><article class="card report-stat-card"><span class="report-stat-label">Selisih tercatat</span><strong class="${Number(summary.net || 0) < 0 ? 'negative' : ''}">${money(summary.net)}</strong><small>Masuk dikurangi keluar</small></article><article class="card report-stat-card"><span class="report-stat-label">Transaksi</span><strong>${Number(summary.count || 0)}</strong><small>Dalam ${Number(currentPeriod.days || 0)} hari periode ini</small></article></div>
+      ${comparisonMarkup}
+      <section class="card report-category-card"><div class="card-head"><div><h2 class="card-title">Rekap per kategori</h2><p class="card-subtitle">${escapeHtml(categoryMeasureLabel)}${state.reportCategory ? ` · ${escapeHtml(state.reportCategory)}` : ' · seluruh kategori'}${state.reportCompare ? ' · nilai saat ini dan pembanding' : ''}</p></div><span class="report-category-icon">${icon('chart')}</span></div><div class="report-category-list">${categoryRows || emptyState('Belum ada transaksi di periode ini', 'Coba ubah periode atau kategori, atau catat transaksi baru.', 'receipt')}</div><p class="report-accuracy-note">Laporan mengikuti tanggal dan kategori pada catatan transaksi. Pastikan transaksi dicatat pada tanggal yang benar; kategori kosong akan ditampilkan sebagai “Tanpa kategori”.</p></section>`;
+  }
+
+  function downloadReportCsv() {
+    const data = state.report;
+    if (!data?.summary) return;
+    const current = data.summary;
+    const previous = data.previous_summary;
+    const comparing = state.reportCompare && previous;
+    const headers = ['Kategori', 'Jumlah transaksi', 'Uang masuk', 'Uang keluar', 'Selisih tercatat'];
+    if (comparing) headers.push('Transaksi pembanding', 'Masuk pembanding', 'Keluar pembanding', 'Selisih pembanding');
+    const rows = [
+      ['Periode laporan', data.current_period?.label || ''],
+      ['Tanggal saat ini', reportRangeLabel(data.current_period)],
+      ...(comparing ? [['Tanggal pembanding', reportRangeLabel(data.previous_period)]] : []),
+      ['Jenis transaksi', state.reportKind === 'all' ? 'Semua jenis' : state.reportKind === 'income' ? 'Uang masuk' : 'Uang keluar'],
+      ['Kategori filter', state.reportCategory || 'Semua kategori'],
+      [],
+      headers,
+    ];
+    for (const item of data.categories || []) {
+      const prior = item.previous || { income: 0, expense: 0, count: 0 };
+      const row = [item.category || 'Tanpa kategori', Number(item.count || 0), Number(item.income || 0), Number(item.expense || 0), Number(item.income || 0) - Number(item.expense || 0)];
+      if (comparing) row.push(Number(prior.count || 0), Number(prior.income || 0), Number(prior.expense || 0), Number(prior.income || 0) - Number(prior.expense || 0));
+      rows.push(row);
+    }
+    const totalRow = ['TOTAL', Number(current.count || 0), Number(current.income || 0), Number(current.expense || 0), Number(current.net || 0)];
+    if (comparing) totalRow.push(Number(previous.count || 0), Number(previous.income || 0), Number(previous.expense || 0), Number(previous.net || 0));
+    rows.push(totalRow);
+    const csv = `\uFEFF${rows.map((row) => row.map((value) => {
+      let text = String(value ?? '');
+      if (typeof value !== 'number' && /^[\s]*[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    }).join(';')).join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `laporan-keuangan-${state.reportPeriod}-${localDateValue()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function remindersMarkup() {
@@ -849,7 +1022,7 @@
 
   function openTransactionModal(kind = 'expense') {
     const selected = kind === 'income' ? 'income' : 'expense';
-    const categories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
+    const categories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Bensin', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
     const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
     openModal(selected === 'income' ? 'Catat uang masuk' : 'Catat uang keluar', 'Biar arus kas rumah tetap kebaca dan nggak mengandalkan ingatan.', `
       <form class="modal-body" data-form="transaction"><div class="form-grid">
@@ -893,7 +1066,7 @@
       showToast('Menu anggota hanya tersedia untuk admin.', 'error');
       return;
     }
-    if (!['dashboard', 'finance', 'reminders', 'members', 'settings'].includes(page)) return;
+    if (!['dashboard', 'finance', 'report', 'reminders', 'members', 'settings'].includes(page)) return;
     state.page = page;
     render();
   }
@@ -905,6 +1078,8 @@
       showToast(result.message);
       state.dashboard = null;
       state.finance = null;
+      state.report = null;
+      state.reportKey = '';
       await refreshPage(true);
     } catch (error) { showToast(error.message, 'error'); }
   }
@@ -941,6 +1116,8 @@
     state.user = null;
     state.dashboard = null;
     state.finance = null;
+    state.report = null;
+    state.reportKey = '';
     state.reminders = null;
     state.members = null;
     state.settings = null;
@@ -964,6 +1141,7 @@
     else if (action === 'open-import') openImportModal(actionButton.dataset.importType);
     else if (action === 'download-import-template') downloadImportTemplate(actionButton.dataset.importType);
     else if (action === 'confirm-import') await confirmImport(actionButton);
+    else if (action === 'download-report') downloadReportCsv();
     else if (action === 'close-modal') closeModal();
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
@@ -1011,7 +1189,7 @@
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;
-    const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
+    const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Bensin', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
     category.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
   });
 
@@ -1037,6 +1215,8 @@
         showToast(result.message);
         state.dashboard = null;
         state.finance = null;
+        state.report = null;
+        state.reportKey = '';
         await refreshPage(true);
       } else if (kind === 'reminder') {
         const result = await api('reminder/create', data);

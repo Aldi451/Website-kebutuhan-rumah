@@ -6,6 +6,7 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 
 - **Ringkasan keuangan:** saldo dari transaksi yang tercatat, pemasukan/pengeluaran bulan ini, grafik arus kas enam bulan, dan transaksi terbaru.
 - **Catat uang masuk & keluar:** kategori, tanggal, nominal Rupiah, dan catatan opsional. Semua anggota rumah berbagi buku catatan yang sama; tiap baris tetap mencantumkan pembuatnya.
+- **Laporan keuangan:** rekap per kategori untuk hari ini, bulan ini sampai hari ini, bulan lalu, tahun ini, tahun lalu, atau rentang tanggal. Bisa dibandingkan dengan periode sepadan (misalnya bensin bulan ini vs bulan lalu) dan diunduh sebagai CSV.
 - **Target pengeluaran bulanan:** buat batas belanja untuk bulan yang dipilih dan lihat progres dari total uang keluar.
 - **Pengingat:** simpan judul, tanggal dan jam, kategori, catatan, lalu tandai selesai atau hapus. Contoh: “Ganti oli motor” tanggal 26.
 - **Import massal Excel:** unggah transaksi atau pengingat dari workbook `.xlsx` atau CSV, pratinjau baris yang valid, dan tambahkan sampai 500 baris sekaligus.
@@ -21,6 +22,19 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 4. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per file, ukuran maksimal 10 MB.
 
 Setiap impor menambahkan catatan baru—mengunggah file yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan Telegram satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
+
+## Laporan keuangan
+
+Menu **Laporan** merangkum catatan berdasarkan kategori dan periode:
+
+- **Hari ini** dibanding kemarin
+- **Bulan ini sampai hari ini** dibanding bulan lalu sampai tanggal yang sama (agar 13 Oktober tidak dibanding dengan 30 hari penuh bulan September)
+- **Bulan lalu** dibanding dua bulan lalu (bulan kalender penuh)
+- **Tahun ini sampai hari ini** dibanding tahun lalu sampai tanggal yang sepadan
+- **Tahun lalu** dibanding dua tahun lalu
+- **Rentang tanggal khusus**, dibanding rentang sebelumnya dengan jumlah hari yang sama
+
+Pilih satu kategori (misalnya Bensin) atau semua kategori, lalu saring uang masuk, uang keluar, atau keduanya. Laporan menampilkan selisih nominal, persentase, rata-rata pengeluaran per hari, dan unduhan CSV. Akurasi mengikuti tanggal serta kategori yang tercatat pada transaksi.
 
 ## Login awal
 
