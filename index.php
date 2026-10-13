@@ -10,13 +10,12 @@ try {
         'user' => $user ? ['id' => $user['id'], 'username' => $user['username'], 'name' => $user['display_name'], 'role' => $user['role']] : null,
         'csrf' => $_SESSION['csrf_token'],
         'timezone' => date_default_timezone_get(),
-        'appName' => 'Saku Rumah',
     ];
 } catch (Throwable $error) {
-    error_log('[Saku Rumah] ' . $error->getMessage());
+    error_log('[Keuangan rumah] ' . $error->getMessage());
     http_response_code(500);
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><html lang="id"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Saku Rumah belum siap</title><body style="font-family:system-ui,sans-serif;background:#f4f7f8;color:#243a43;padding:4rem 1.5rem"><main style="max-width:560px;margin:auto;background:white;border:1px solid #e8edf0;border-radius:18px;padding:2rem"><h1 style="font-size:1.4rem">Database belum siap</h1><p style="line-height:1.7;color:#687980">Saku Rumah belum bisa mengakses database. Periksa pengaturan di <code>config.php</code>, pastikan detail MySQL benar dan user database punya izin membuat tabel, lalu muat ulang halaman.</p></main></body></html>';
+    echo '<!doctype html><html lang="id"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aplikasi belum siap</title><body style="font-family:system-ui,sans-serif;background:#f4f7f8;color:#243a43;padding:4rem 1.5rem"><main style="max-width:560px;margin:auto;background:white;border:1px solid #e8edf0;border-radius:18px;padding:2rem"><h1 style="font-size:1.4rem">Database belum siap</h1><p style="line-height:1.7;color:#687980">Website belum bisa mengakses database. Periksa pengaturan di <code>config.php</code>, pastikan detail MySQL benar dan user database punya izin membuat tabel, lalu muat ulang halaman.</p></main></body></html>';
     exit;
 }
 ?><!doctype html>
@@ -25,18 +24,18 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f6f8fb">
-    <meta name="description" content="Saku Rumah — keuangan dan pengingat rumah dalam satu tempat.">
-    <title>Saku Rumah — Keuangan & agenda rumah</title>
+    <meta name="description" content="Catatan keuangan rumah dan pengingat keluarga dalam satu dashboard.">
+    <title>Masuk — Catatan keuangan rumah</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand.svg">
-    <link rel="stylesheet" href="/assets/style.css?v=2">
+    <link rel="stylesheet" href="/assets/style.css?v=3">
     <script>
-        window.SAKURUMAH_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+        window.APP_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
-    <script defer src="/assets/app.js?v=2"></script>
+    <script defer src="/assets/app.js?v=3"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">
-        <div class="initial-loader"><span class="loader-mark">S</span><span>Menyiapkan Saku Rumah…</span></div>
+        <div class="initial-loader"><span class="loader-mark" aria-hidden="true"></span><span>Menyiapkan halaman…</span></div>
     </div>
     <div id="modal-root"></div>
     <div id="toast-root" class="toast-root" aria-live="assertive" aria-atomic="true"></div>

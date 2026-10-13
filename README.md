@@ -1,4 +1,4 @@
-# Saku Rumah — kebutuhan rumah dalam satu dashboard
+# Dashboard kebutuhan rumah
 
 Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan aksen hijau-teal. Fokusnya untuk mencatat keuangan rumah dan menyimpan pengingat keluarga.
 

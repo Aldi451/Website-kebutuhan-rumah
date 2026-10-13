@@ -1,14 +1,23 @@
 (() => {
   'use strict';
 
-  const boot = window.SAKURUMAH_BOOT || { user: null, csrf: '' };
+  const boot = window.APP_BOOT || { user: null, csrf: '' };
   const appTimeZone = boot.timezone || 'Asia/Jakarta';
   const appRoot = document.getElementById('app');
   const modalRoot = document.getElementById('modal-root');
   const toastRoot = document.getElementById('toast-root');
+  function readLoginTheme() {
+    try { return window.localStorage.getItem('household-login-theme') === 'dark' ? 'dark' : 'light'; }
+    catch { return 'light'; }
+  }
+  function syncBrowserThemeColor(theme) {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = theme === 'dark' ? '#101923' : '#f8fafb';
+  }
   const state = {
     user: boot.user,
     csrf: boot.csrf,
+    loginTheme: readLoginTheme(),
     page: 'dashboard',
     dashboard: null,
     finance: null,
@@ -48,6 +57,8 @@
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
     receipt: '<path d="M4 3h16v18l-3-2-3 2-3-2-3 2-4-2z"/><path d="M8 8h8M8 12h8M8 16h4"/>',
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
+    moon: '<path d="M20.2 15.7A8.6 8.6 0 0 1 8.3 3.8a8.8 8.8 0 1 0 11.9 11.9Z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
   };
 
   const NAV_ITEMS = [
@@ -222,11 +233,11 @@
   }
 
   function pageTitle(page = state.page) {
-    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'Saku Rumah';
+    return ({ dashboard: 'Ringkasan', finance: 'Keuangan', reminders: 'Pengingat', members: 'Anggota rumah', settings: 'Pengaturan' })[page] || 'Ringkasan';
   }
 
   function brandMarkup() {
-    return `<a class="brand" href="#" data-page="dashboard" aria-label="Saku Rumah, Ringkasan"><span class="brand-symbol">S.</span><span><span class="brand-name">Saku Rumah</span><span class="brand-tag">keuangan & agenda rumah</span></span></a>`;
+    return `<a class="brand" href="#" data-page="dashboard" aria-label="Ringkasan"><span class="brand-symbol" aria-hidden="true">${icon('home')}</span></a>`;
   }
 
   function navLink(item, mobile = false) {
@@ -236,12 +247,14 @@
   }
 
   function renderLogin() {
+    const isNight = state.loginTheme === 'dark';
+    syncBrowserThemeColor(state.loginTheme);
     appRoot.innerHTML = `
-      <main class="login-page">
+      <main class="login-page" data-theme="${isNight ? 'dark' : 'light'}">
+        <button class="login-theme-toggle" type="button" data-action="toggle-login-theme" aria-label="${isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam'}" aria-pressed="${isNight}" title="${isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam'}">${icon(isNight ? 'sun' : 'moon')}<span>${isNight ? 'Mode biasa' : 'Mode malam'}</span></button>
         <section class="login-card" aria-labelledby="login-title">
-          <div class="login-brand">${brandMarkup()}</div>
-          <h1 id="login-title" class="sr-only">Masuk ke Saku Rumah</h1>
-          <p class="login-caption">Satu tempat untuk keuangan dan pengingat rumah.</p>
+          <h1 id="login-title" class="sr-only">Masuk</h1>
+          <p class="login-caption">Masuk untuk melanjutkan.</p>
           <form class="login-form" data-form="login" autocomplete="on">
             <div class="field"><label for="login-username">User ID</label><input class="input" id="login-username" name="username" type="text" placeholder="Masukkan User ID" autocomplete="username" autocapitalize="none" required></div>
             <div class="field"><label for="login-password">Password</label><input class="input" id="login-password" name="password" type="password" placeholder="Masukkan password" autocomplete="current-password" required></div>
@@ -252,7 +265,25 @@
       </main>`;
   }
 
+  function setLoginTheme(theme) {
+    state.loginTheme = theme === 'dark' ? 'dark' : 'light';
+    syncBrowserThemeColor(state.loginTheme);
+    try { window.localStorage.setItem('household-login-theme', state.loginTheme); } catch { /* optional preference */ }
+    const loginPage = appRoot.querySelector('.login-page');
+    if (!loginPage) return;
+    const isNight = state.loginTheme === 'dark';
+    loginPage.dataset.theme = state.loginTheme;
+    const button = loginPage.querySelector('[data-action="toggle-login-theme"]');
+    if (button) {
+      button.innerHTML = `${icon(isNight ? 'sun' : 'moon')}<span>${isNight ? 'Mode biasa' : 'Mode malam'}</span>`;
+      button.setAttribute('aria-label', isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam');
+      button.setAttribute('aria-pressed', String(isNight));
+      button.title = isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam';
+    }
+  }
+
   function renderShell() {
+    syncBrowserThemeColor('light');
     const dateText = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: appTimeZone }).format(new Date());
     const mobileItems = NAV_ITEMS.filter((item) => !item.admin || state.user?.role === 'admin').filter((item) => item.id !== 'members' || state.user?.role === 'admin');
     const mobileColumns = mobileItems.length;
@@ -503,7 +534,7 @@
     const telegram = state.settings?.telegram || { connected: false, chat_id: '', token_hint: '' };
     const isAdmin = state.user?.role === 'admin';
     const telegramPanel = isAdmin ? `
-        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Saku Rumah akan mengirim pesan tes dan kabar saat pengingat dibuat.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
+        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Pesan percobaan dan kabar pengingat akan dikirim ke Telegram.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Status koneksi bot untuk pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? 'Bot rumah sudah tersambung.' : 'Bot Telegram belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan bot dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p></section>`;
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke Telegram' : ''}.</p></div></div>
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
@@ -625,7 +656,8 @@
       return;
     }
     const action = actionButton.dataset.action;
-    if (action === 'close-modal') closeModal();
+    if (action === 'toggle-login-theme') setLoginTheme(state.loginTheme === 'dark' ? 'light' : 'dark');
+    else if (action === 'close-modal') closeModal();
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
     else if (action === 'open-user') openUserModal();
@@ -686,7 +718,7 @@
         state.user = result.user;
         state.csrf = result.csrf;
         state.page = 'dashboard';
-        showToast(`Halo, ${result.user.name}! Selamat datang di Saku Rumah.`);
+        showToast(`Halo, ${result.user.name}! Selamat datang.`);
         await render();
       } else if (kind === 'transaction') {
         const result = await api('transaction/create', { ...data, amount: Number(data.amount) });

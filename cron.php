@@ -38,9 +38,9 @@ try {
         }
     }
 
-    echo "Saku Rumah reminder check selesai. Terkirim: {$sent}; belum terkirim: {$failed}.\n";
+    echo "Pemeriksaan pengingat selesai. Terkirim: {$sent}; belum terkirim: {$failed}.\n";
 } catch (Throwable $error) {
-    error_log('[Saku Rumah cron] ' . $error->getMessage());
+    error_log('[Pengingat cron] ' . $error->getMessage());
     http_response_code(500);
     echo "Pemeriksaan reminder gagal. Periksa konfigurasi database dan server.\n";
 }
