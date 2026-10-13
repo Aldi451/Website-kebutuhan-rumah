@@ -65,6 +65,55 @@ try {
 
     $user = app_require_user();
 
+    // Mengirim gambar bukti apa adanya (bukan JSON). Dipakai oleh <img> di halaman bukti.
+    if ($action === 'attachment' && $method === 'GET') {
+        $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'Bukti tidak ditemukan.';
+            exit;
+        }
+        $query = $pdo->prepare('SELECT mime, byte_size, image_data, file_name FROM attachments WHERE id = :id LIMIT 1');
+        $query->execute([':id' => $id]);
+        $record = $query->fetch();
+        if (!$record) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'Bukti tidak ditemukan.';
+            exit;
+        }
+        $data = $record['image_data'];
+        if (is_resource($data)) {
+            $data = stream_get_contents($data);
+        }
+        $data = (string) $data;
+        if ($data === '') {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'Isi gambar tidak tersimpan pada cadangan ini.';
+            exit;
+        }
+        $download = (string) ($_GET['download'] ?? '') === '1';
+        header('Content-Type: ' . ((string) $record['mime'] !== '' ? (string) $record['mime'] : 'image/jpeg'));
+        header('Content-Length: ' . strlen($data));
+        header('Cache-Control: private, max-age=120, no-transform');
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="bukti-' . $id . '.jpg"');
+        echo $data;
+        exit;
+    }
+
+    // Cadangan database dalam bentuk file .sql (khusus admin).
+    if ($action === 'backup/download' && $method === 'GET') {
+        app_require_admin($user);
+        header('Content-Type: application/sql; charset=utf-8');
+        header('Content-Disposition: attachment; filename="backup-rumah-' . date('Y-m-d-His') . '.sql"');
+        header('Cache-Control: no-store, max-age=0');
+        app_stream_sql_dump($pdo);
+        exit;
+    }
+
     if ($action === 'me' && $method === 'GET') {
         app_json(['ok' => true, 'user' => ['id' => $user['id'], 'username' => $user['username'], 'name' => $user['display_name'], 'role' => $user['role']], 'csrf' => $_SESSION['csrf_token']]);
     }
@@ -128,8 +177,8 @@ try {
                 'all_expense' => $allByKind['expense'],
             ],
             'chart' => $chart,
-            'transactions' => array_map('app_clean_transaction', $recentQuery->fetchAll()),
-            'reminders' => array_map('app_clean_reminder', $reminderQuery->fetchAll()),
+            'transactions' => array_map('app_clean_transaction', app_attach_receipts($pdo, $recentQuery->fetchAll(), 'transaction')),
+            'reminders' => array_map('app_clean_reminder', app_attach_receipts($pdo, $reminderQuery->fetchAll(), 'reminder')),
             'reminder_counts' => $counts,
         ]);
     }
@@ -155,7 +204,7 @@ try {
             'month' => $month,
             'target' => $targetAmount === false ? 0 : (int) $targetAmount,
             'summary' => $summary,
-            'transactions' => array_map('app_clean_transaction', $query->fetchAll()),
+            'transactions' => array_map('app_clean_transaction', app_attach_receipts($pdo, $query->fetchAll(), 'transaction')),
         ]);
     }
 
@@ -445,13 +494,38 @@ try {
         if (!in_array($kind, ['income', 'expense'], true) || $title === '' || strlen($title) > 100 || $category === '' || strlen($category) > 40 || $amount === false || $amount < 1 || $amount > 999999999999 || !app_valid_date($date) || strlen($note) > 500) {
             app_json(['ok' => false, 'message' => 'Periksa lagi detail transaksi. Nominal harus lebih dari Rp 0.'], 422);
         }
+        try {
+            // Bukti gambar boleh dilewati (null) dan diproses lebih dulu supaya gambarnya tervalidasi sebelum disimpan.
+            $receipt = app_receipt_payload($input);
+        } catch (RuntimeException $error) {
+            app_json(['ok' => false, 'message' => 'Bukti gambar belum bisa dipakai: ' . $error->getMessage()], 422);
+        }
         $insert = $pdo->prepare('INSERT INTO transactions (kind, title, category, amount, transaction_date, note, user_id, created_at) VALUES (:kind, :title, :category, :amount, :date, :note, :user, :created)');
-        $insert->execute([
-            ':kind' => $kind, ':title' => $title, ':category' => $category,
-            ':amount' => $amount, ':date' => $date, ':note' => $note === '' ? null : $note,
-            ':user' => $user['id'], ':created' => $now,
+        $pdo->beginTransaction();
+        try {
+            $insert->execute([
+                ':kind' => $kind, ':title' => $title, ':category' => $category,
+                ':amount' => $amount, ':date' => $date, ':note' => $note === '' ? null : $note,
+                ':user' => $user['id'], ':created' => $now,
+            ]);
+            $transactionId = (int) $pdo->lastInsertId();
+            if ($receipt !== null) {
+                app_save_receipt($pdo, 'transaction', $transactionId, $receipt, (int) $user['id'], $now);
+            }
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        app_json([
+            'ok' => true,
+            'message' => $receipt === null
+                ? 'Transaksi berhasil disimpan.'
+                : 'Transaksi dan bukti gambar (' . app_format_bytes((int) strlen((string) $receipt['bytes'])) . ') berhasil disimpan.',
+            'has_receipt' => $receipt !== null,
         ]);
-        app_json(['ok' => true, 'message' => 'Transaksi berhasil disimpan.']);
     }
 
     if ($action === 'transactions/import' && $method === 'POST') {
@@ -522,6 +596,8 @@ try {
         if ($user['role'] !== 'admin' && (int) $owner !== $user['id']) {
             app_json(['ok' => false, 'message' => 'Kamu hanya bisa menghapus transaksi yang kamu catat.'], 403);
         }
+        $dropReceipt = $pdo->prepare("DELETE FROM attachments WHERE entity_type = 'transaction' AND entity_id = :id");
+        $dropReceipt->execute([':id' => $id]);
         $delete = $pdo->prepare('DELETE FROM transactions WHERE id = :id');
         $delete->execute([':id' => $id]);
         app_json(['ok' => true, 'message' => 'Transaksi dihapus.']);
@@ -557,7 +633,7 @@ try {
             $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = :status ORDER BY reminder_at ASC LIMIT 1000');
             $query->execute([':status' => $status]);
         }
-        app_json(['ok' => true, 'reminders' => array_map('app_clean_reminder', $query->fetchAll())]);
+        app_json(['ok' => true, 'reminders' => array_map('app_clean_reminder', app_attach_receipts($pdo, $query->fetchAll(), 'reminder'))]);
     }
 
     if ($action === 'reminder/create' && $method === 'POST') {
@@ -568,18 +644,37 @@ try {
         if ($title === '' || strlen($title) > 120 || $category === '' || strlen($category) > 40 || $reminderAt === null || strlen($note) > 500) {
             app_json(['ok' => false, 'message' => 'Isi judul dan waktu pengingat dengan benar.'], 422);
         }
+        try {
+            $receipt = app_receipt_payload($input);
+        } catch (RuntimeException $error) {
+            app_json(['ok' => false, 'message' => 'Bukti gambar belum bisa dipakai: ' . $error->getMessage()], 422);
+        }
         $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, note, status, created_by, created_at) VALUES (:title, :category, :at, :note, :status, :user, :created)');
-        $insert->execute([
-            ':title' => $title, ':category' => $category, ':at' => $reminderAt,
-            ':note' => $note === '' ? null : $note, ':status' => 'pending',
-            ':user' => $user['id'], ':created' => $now,
-        ]);
-        $telegram = app_send_telegram("🔔 Pengingat rumah\n\n{$title}\n" . date('d M Y, H.i', strtotime($reminderAt)) . " WIB\nKategori: {$category}\nDibuat oleh: {$user['display_name']}" . ($note !== '' ? "\n\nCatatan: {$note}" : ''));
+        $pdo->beginTransaction();
+        try {
+            $insert->execute([
+                ':title' => $title, ':category' => $category, ':at' => $reminderAt,
+                ':note' => $note === '' ? null : $note, ':status' => 'pending',
+                ':user' => $user['id'], ':created' => $now,
+            ]);
+            $reminderId = (int) $pdo->lastInsertId();
+            if ($receipt !== null) {
+                app_save_receipt($pdo, 'reminder', $reminderId, $receipt, (int) $user['id'], $now);
+            }
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        $telegram = app_send_telegram("🔔 Pengingat rumah\n\n{$title}\n" . date('d M Y, H.i', strtotime($reminderAt)) . " WIB\nKategori: {$category}\nDibuat oleh: {$user['display_name']}" . ($note !== '' ? "\n\nCatatan: {$note}" : '') . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
         app_json([
             'ok' => true,
-            'message' => 'Pengingat berhasil disimpan.',
+            'message' => $receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.',
             'telegram_sent' => (bool) ($telegram['ok'] ?? false),
             'telegram_message' => (string) ($telegram['description'] ?? ''),
+            'has_receipt' => $receipt !== null,
         ]);
     }
 
@@ -664,9 +759,77 @@ try {
         if ($user['role'] !== 'admin' && (int) $owner !== $user['id']) {
             app_json(['ok' => false, 'message' => 'Kamu hanya bisa menghapus pengingat yang kamu buat.'], 403);
         }
+        $dropReceipt = $pdo->prepare("DELETE FROM attachments WHERE entity_type = 'reminder' AND entity_id = :id");
+        $dropReceipt->execute([':id' => $id]);
         $delete = $pdo->prepare('DELETE FROM reminders WHERE id = :id');
         $delete->execute([':id' => $id]);
         app_json(['ok' => true, 'message' => 'Pengingat dihapus.']);
+    }
+
+    // Menambah atau mengganti bukti gambar pada transaksi/pengingat yang sudah ada.
+    if ($action === 'attachment/save' && $method === 'POST') {
+        $entityType = (string) ($input['entity_type'] ?? '');
+        $entityId = filter_var($input['entity_id'] ?? null, FILTER_VALIDATE_INT);
+        if (!in_array($entityType, ['transaction', 'reminder'], true) || !$entityId || $entityId < 1) {
+            app_json(['ok' => false, 'message' => 'Bukti harus dipasang pada transaksi atau pengingat yang jelas.'], 422);
+        }
+        $owner = app_entity_owner_id($pdo, $entityType, (int) $entityId);
+        if ($owner === null) {
+            app_json(['ok' => false, 'message' => 'Catatan yang mau diberi bukti sudah tidak ada.'], 404);
+        }
+        if (!app_can_manage_entity($user, $owner)) {
+            app_json(['ok' => false, 'message' => 'Kamu hanya bisa menambah bukti pada catatanmu sendiri.'], 403);
+        }
+        try {
+            $receipt = app_receipt_payload($input);
+        } catch (RuntimeException $error) {
+            app_json(['ok' => false, 'message' => 'Bukti gambar belum bisa dipakai: ' . $error->getMessage()], 422);
+        }
+        if ($receipt === null) {
+            app_json(['ok' => false, 'message' => 'Pilih foto bukti terlebih dahulu.'], 422);
+        }
+        $pdo->beginTransaction();
+        try {
+            $attachmentId = app_save_receipt($pdo, $entityType, (int) $entityId, $receipt, (int) $user['id'], $now);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        app_json([
+            'ok' => true,
+            'message' => 'Bukti gambar (' . app_format_bytes((int) strlen((string) $receipt['bytes'])) . ') berhasil disimpan.',
+            'attachment' => [
+                'id' => $attachmentId,
+                'mime' => (string) $receipt['mime'],
+                'bytes' => strlen((string) $receipt['bytes']),
+                'width' => (int) $receipt['width'],
+                'height' => (int) $receipt['height'],
+                'url' => '/api.php?action=attachment&id=' . $attachmentId,
+            ],
+        ]);
+    }
+
+    if ($action === 'attachment/delete' && $method === 'POST') {
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            app_json(['ok' => false, 'message' => 'Bukti tidak ditemukan.'], 422);
+        }
+        $query = $pdo->prepare('SELECT entity_type, entity_id, uploaded_by FROM attachments WHERE id = :id LIMIT 1');
+        $query->execute([':id' => $id]);
+        $record = $query->fetch();
+        if (!$record) {
+            app_json(['ok' => false, 'message' => 'Bukti sudah tidak ada.'], 404);
+        }
+        $owner = app_entity_owner_id($pdo, (string) $record['entity_type'], (int) $record['entity_id']);
+        if ((int) $record['uploaded_by'] !== (int) $user['id'] && !app_can_manage_entity($user, $owner)) {
+            app_json(['ok' => false, 'message' => 'Kamu hanya bisa menghapus bukti milik catatanmu sendiri.'], 403);
+        }
+        $delete = $pdo->prepare('DELETE FROM attachments WHERE id = :id');
+        $delete->execute([':id' => $id]);
+        app_json(['ok' => true, 'message' => 'Bukti gambar dihapus. Catatan keuangannya tetap tersimpan.']);
     }
 
     if ($action === 'password/change' && $method === 'POST') {
@@ -735,14 +898,28 @@ try {
 
     if ($action === 'settings/get' && $method === 'GET') {
         $credentials = app_telegram_credentials();
+        $isAdmin = $user['role'] === 'admin';
+        $database = null;
+        if ($isAdmin) {
+            $summary = app_database_summary();
+            $database = [
+                'driver' => $summary['driver'],
+                'file' => $summary['file'],
+                'total_rows' => $summary['total_rows'],
+                'attachment_count' => $summary['attachment_count'],
+                'attachment_size' => app_format_bytes((int) $summary['attachment_bytes']),
+                'tables' => $summary['tables'],
+            ];
+        }
         app_json([
             'ok' => true,
-            'can_manage_telegram' => $user['role'] === 'admin',
+            'can_manage_telegram' => $isAdmin,
             'telegram' => [
                 'connected' => $credentials['token'] !== '' && $credentials['chat_id'] !== '',
-                'chat_id' => $user['role'] === 'admin' ? $credentials['chat_id'] : '',
-                'token_hint' => $user['role'] === 'admin' && $credentials['token'] !== '' ? '••••••••' . substr($credentials['token'], -5) : '',
+                'chat_id' => $isAdmin ? $credentials['chat_id'] : '',
+                'token_hint' => $isAdmin && $credentials['token'] !== '' ? '••••••••' . substr($credentials['token'], -5) : '',
             ],
+            'database' => $database,
         ]);
     }
 
