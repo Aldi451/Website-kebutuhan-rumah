@@ -341,6 +341,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .report-category-amount strong { display: block; color: #314850; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .report-category-amount small { display: block; margin-top: 4px; color: #94a2a6; font-size: 9px; line-height: 1.45; }
 .report-category-amount small b { color: #5f7379; }
+.report-category-row { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.report-category-row:hover .report-category-name strong { color: var(--brand-dark); }
+.report-insight-card, .report-projection-card, .report-highlight-card { padding-bottom: 16px; margin-bottom: 17px; }
+.report-insight-list { display: grid; gap: 9px; margin: 14px 20px 0; padding: 0; list-style: none; }
+.report-insight-list li { position: relative; padding: 10px 12px 10px 32px; border-radius: 11px; color: #4f646b; background: #f6f9f8; font-size: 11px; line-height: 1.55; }
+.report-insight-list li::before { content: ''; position: absolute; top: 16px; left: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--brand-lime); box-shadow: 0 0 0 4px #e7f3c8; }
+.report-projection-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 16px 20px 0; }
+.report-projection-grid article { padding: 13px 14px; border: 1px solid #eef2f2; border-radius: 12px; background: #fbfcfc; }
+.report-projection-grid span { display: block; color: #85949a; font-size: 9px; font-weight: 700; }
+.report-projection-grid strong { display: block; margin-top: 8px; color: #314850; font: 700 16px 'Plus Jakarta Sans', sans-serif; }
+.report-highlight-list { display: grid; padding-top: 6px; }
+.report-highlight-row { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 8px 20px; border-top: 1px solid #f0f2f3; }
 
 /* Reminders */
 .reminder-summary-grid { grid-template-columns: 1fr 1fr 1fr; margin-bottom: 18px; }
@@ -490,6 +502,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .report-range-separator { padding: 0; }
   .report-category-row { grid-template-columns: 1fr; gap: 8px; }
   .report-category-amount { text-align: left; }
+  .report-projection-grid { grid-template-columns: 1fr; }
   .finance-metric { padding: 14px; }
   .finance-metric .stat-value { font-size: 17px; }
   .finance-filter { width: 100%; }

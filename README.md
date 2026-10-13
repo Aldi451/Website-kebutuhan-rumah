@@ -34,7 +34,7 @@ Menu **Laporan** merangkum catatan berdasarkan kategori dan periode:
 - **Tahun lalu** dibanding dua tahun lalu
 - **Rentang tanggal khusus**, dibanding rentang sebelumnya dengan jumlah hari yang sama
 
-Pilih satu kategori (misalnya Bensin) atau semua kategori, lalu saring uang masuk, uang keluar, atau keduanya. Laporan menampilkan selisih nominal, persentase, rata-rata pengeluaran per hari, dan unduhan CSV. Akurasi mengikuti tanggal serta kategori yang tercatat pada transaksi.
+Pilih satu kategori (misalnya Bensin) atau semua kategori, lalu saring uang masuk, uang keluar, atau keduanya. Laporan menampilkan porsi kategori, transaksi terbesar, selisih nominal, persentase, dan unduhan CSV. Hari ini juga dibanding dengan hari yang sama minggu lalu; bulan berjalan menampilkan proyeksi akhir bulan. Kategori yang hanya beda huruf (Bensin/bensin) digabung. Rata-rata harian memakai hari kalender, plus peringatan jika banyak hari belum dicatat. Akurasi mengikuti tanggal pada transaksi.
 
 ## Login awal
 

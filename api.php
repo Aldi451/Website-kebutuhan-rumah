@@ -250,7 +250,7 @@ try {
         $filterSql = '';
         $filterParams = [];
         if ($category !== '') {
-            $filterSql .= ' AND category = :category';
+            $filterSql .= ' AND LOWER(category) = LOWER(:category)';
             $filterParams[':category'] = $category;
         }
         if ($kind !== 'all') {
@@ -258,13 +258,17 @@ try {
             $filterParams[':kind'] = $kind;
         }
 
-        $summaryStatement = $pdo->prepare("SELECT kind, COUNT(*) AS records, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} GROUP BY kind");
-        $summaryFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($summaryStatement, $filterParams): array {
+        $bindRange = static function (array $filterParams, DateTimeImmutable $start, DateTimeImmutable $end): array {
             $params = [':start' => $start->format('Y-m-d'), ':end' => $end->format('Y-m-d')];
             foreach ($filterParams as $key => $value) {
                 $params[$key] = $value;
             }
-            $summaryStatement->execute($params);
+            return $params;
+        };
+
+        $summaryStatement = $pdo->prepare("SELECT kind, COUNT(*) AS records, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} GROUP BY kind");
+        $summaryFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($summaryStatement, $filterParams, $bindRange): array {
+            $summaryStatement->execute($bindRange($filterParams, $start, $end));
             $summary = ['income' => 0, 'expense' => 0, 'income_count' => 0, 'expense_count' => 0, 'count' => 0];
             foreach ($summaryStatement->fetchAll() as $row) {
                 $rowKind = (string) $row['kind'];
@@ -280,61 +284,154 @@ try {
         };
 
         $categoryStatement = $pdo->prepare("SELECT category, COUNT(*) AS records, COALESCE(SUM(CASE WHEN kind = 'income' THEN amount ELSE 0 END), 0) AS income, COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount ELSE 0 END), 0) AS expense FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} GROUP BY category");
-        $categoriesFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($categoryStatement, $filterParams): array {
-            $params = [':start' => $start->format('Y-m-d'), ':end' => $end->format('Y-m-d')];
-            foreach ($filterParams as $key => $value) {
-                $params[$key] = $value;
+        $mergeCategories = static function (array $rows): array {
+            $merged = [];
+            foreach ($rows as $row) {
+                $label = trim((string) ($row['category'] ?? ''));
+                $key = strtolower($label);
+                if ($key === '') {
+                    $key = 'tanpa kategori';
+                    $label = 'Tanpa kategori';
+                }
+                if (!isset($merged[$key])) {
+                    $merged[$key] = ['category' => $label, 'income' => 0, 'expense' => 0, 'count' => 0];
+                } elseif (strlen($label) > strlen((string) $merged[$key]['category'])) {
+                    $merged[$key]['category'] = $label;
+                }
+                $merged[$key]['income'] += (int) $row['income'];
+                $merged[$key]['expense'] += (int) $row['expense'];
+                $merged[$key]['count'] += (int) $row['count'];
             }
-            $categoryStatement->execute($params);
-            $categories = [];
+            return $merged;
+        };
+        $categoriesFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($categoryStatement, $filterParams, $bindRange, $mergeCategories): array {
+            $categoryStatement->execute($bindRange($filterParams, $start, $end));
+            $rows = [];
             foreach ($categoryStatement->fetchAll() as $row) {
-                $name = (string) $row['category'];
-                $categories[$name] = [
+                $rows[] = [
+                    'category' => (string) $row['category'],
                     'income' => (int) $row['income'],
                     'expense' => (int) $row['expense'],
                     'count' => (int) $row['records'],
                 ];
             }
-            return $categories;
+            return $mergeCategories($rows);
+        };
+
+        $activeDaysStatement = $pdo->prepare("SELECT COUNT(DISTINCT transaction_date) FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql}");
+        $activeDaysFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($activeDaysStatement, $filterParams, $bindRange): int {
+            $activeDaysStatement->execute($bindRange($filterParams, $start, $end));
+            return (int) $activeDaysStatement->fetchColumn();
+        };
+
+        $largestStatement = $pdo->prepare("SELECT id, kind, title, category, amount, transaction_date FROM transactions WHERE transaction_date >= :start AND transaction_date < :end{$filterSql} ORDER BY amount DESC, transaction_date DESC, id DESC LIMIT 5");
+        $largestFor = static function (DateTimeImmutable $start, DateTimeImmutable $end) use ($largestStatement, $filterParams, $bindRange): array {
+            $largestStatement->execute($bindRange($filterParams, $start, $end));
+            $items = [];
+            foreach ($largestStatement->fetchAll() as $row) {
+                $items[] = [
+                    'id' => (int) $row['id'],
+                    'kind' => (string) $row['kind'],
+                    'title' => (string) $row['title'],
+                    'category' => (string) $row['category'],
+                    'amount' => (int) $row['amount'],
+                    'transaction_date' => (string) $row['transaction_date'],
+                ];
+            }
+            return $items;
         };
 
         $currentSummary = $summaryFor($currentStart, $currentEnd);
         $currentCategories = $categoriesFor($currentStart, $currentEnd);
         $previousSummary = $compare ? $summaryFor($comparisonStart, $comparisonEnd) : null;
         $previousCategories = $compare ? $categoriesFor($comparisonStart, $comparisonEnd) : [];
-        $categoryNames = array_values(array_unique(array_merge(array_keys($currentCategories), array_keys($previousCategories))));
-        usort($categoryNames, static fn (string $a, string $b): int => strcasecmp($a, $b));
+        $categoryKeys = array_values(array_unique(array_merge(array_keys($currentCategories), array_keys($previousCategories))));
+        usort($categoryKeys, static fn (string $a, string $b): int => strcasecmp($a, $b));
         $categoryRows = [];
-        foreach ($categoryNames as $name) {
-            $current = $currentCategories[$name] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
-            $previous = $previousCategories[$name] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
+        foreach ($categoryKeys as $key) {
+            $current = $currentCategories[$key] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
+            $previous = $previousCategories[$key] ?? ['income' => 0, 'expense' => 0, 'count' => 0];
             $categoryRows[] = [
-                'category' => $name,
-                'income' => $current['income'],
-                'expense' => $current['expense'],
-                'count' => $current['count'],
-                'previous' => $compare ? $previous : null,
+                'category' => $currentCategories[$key]['category'] ?? $previousCategories[$key]['category'] ?? $key,
+                'income' => (int) ($current['income'] ?? 0),
+                'expense' => (int) ($current['expense'] ?? 0),
+                'count' => (int) ($current['count'] ?? 0),
+                'previous' => $compare ? ['income' => (int) ($previous['income'] ?? 0), 'expense' => (int) ($previous['expense'] ?? 0), 'count' => (int) ($previous['count'] ?? 0)] : null,
             ];
         }
-        $categoryOptions = $pdo->query("SELECT DISTINCT category FROM transactions WHERE TRIM(category) <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+
+        $optionRows = $pdo->query("SELECT DISTINCT category FROM transactions WHERE TRIM(category) <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+        $categoryOptions = [];
+        $seenOptions = [];
+        foreach ($optionRows as $option) {
+            $label = trim((string) $option);
+            $key = strtolower($label);
+            if ($key === '' || isset($seenOptions[$key])) {
+                continue;
+            }
+            $seenOptions[$key] = true;
+            $categoryOptions[] = $label;
+        }
+
         $rangeData = static function (DateTimeImmutable $start, DateTimeImmutable $end, string $label): array {
+            $days = (int) $start->diff($end)->days;
             return [
                 'label' => $label,
                 'start' => $start->format('Y-m-d'),
                 'end' => $end->modify('-1 day')->format('Y-m-d'),
-                'days' => (int) $start->diff($end)->days,
+                'days' => $days,
             ];
         };
+
+        $currentPeriod = $rangeData($currentStart, $currentEnd, $periodLabel);
+        $currentPeriod['active_days'] = $activeDaysFor($currentStart, $currentEnd);
+        $previousPeriod = null;
+        if ($compare) {
+            $previousPeriod = $rangeData($comparisonStart, $comparisonEnd, $comparisonLabel);
+            $previousPeriod['active_days'] = $activeDaysFor($comparisonStart, $comparisonEnd);
+        }
+
+        $weekdayPeriod = null;
+        $weekdaySummary = null;
+        if ($period === 'today') {
+            $weekdayStart = $today->modify('-7 days');
+            $weekdayEnd = $weekdayStart->modify('+1 day');
+            $weekdayPeriod = $rangeData($weekdayStart, $weekdayEnd, 'Hari yang sama minggu lalu');
+            $weekdaySummary = $summaryFor($weekdayStart, $weekdayEnd);
+        }
+
+        $projection = null;
+        if ($period === 'month_to_date') {
+            $daysInMonth = (int) $today->format('t');
+            $elapsed = max(1, (int) $currentPeriod['days']);
+            $daily = (int) round($currentSummary['expense'] / $elapsed);
+            $monthKey = $today->format('Y-m');
+            $targetQuery = $pdo->prepare('SELECT amount FROM monthly_targets WHERE month_key = :month LIMIT 1');
+            $targetQuery->execute([':month' => $monthKey]);
+            $targetValue = $targetQuery->fetchColumn();
+            $projection = [
+                'days_elapsed' => $elapsed,
+                'days_in_month' => $daysInMonth,
+                'days_remaining' => max(0, $daysInMonth - $elapsed),
+                'daily_expense' => $daily,
+                'projected_expense' => $daily * $daysInMonth,
+                'target' => $targetValue === false ? 0 : (int) $targetValue,
+            ];
+        }
 
         app_json([
             'ok' => true,
             'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare],
-            'current_period' => $rangeData($currentStart, $currentEnd, $periodLabel),
-            'previous_period' => $compare ? $rangeData($comparisonStart, $comparisonEnd, $comparisonLabel) : null,
+            'current_period' => $currentPeriod,
+            'previous_period' => $previousPeriod,
+            'weekday_period' => $weekdayPeriod,
             'summary' => $currentSummary,
             'previous_summary' => $previousSummary,
+            'weekday_summary' => $weekdaySummary,
+            'projection' => $projection,
+            'highlights' => $largestFor($currentStart, $currentEnd),
             'categories' => $categoryRows,
-            'category_options' => array_map('strval', $categoryOptions),
+            'category_options' => $categoryOptions,
         ]);
     }
 
