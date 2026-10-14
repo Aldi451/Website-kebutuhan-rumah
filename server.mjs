@@ -9,6 +9,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const documentRoot = '/www';
 const databasePath = path.join(root, 'storage', 'rumahku.sqlite');
+// Upload bukti berupa gambar terkompres dikirim sebagai JSON+base64, jadi badan permintaan boleh lebih besar.
+const maxRequestBody = 12 * 1024 * 1024;
 const filesToServe = [
   'index.php', 'api.php', 'cron.php', '.htaccess', 'config.php',
   'includes/app.php', 'assets/app.js', 'assets/importer.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
@@ -53,7 +55,7 @@ const server = http.createServer((request, response) => {
   const chunks = [];
   request.on('data', (chunk) => {
     bodySize += chunk.length;
-    if (bodySize > 1_048_576) {
+    if (bodySize > maxRequestBody) {
       response.writeHead(413, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Request body is too large.');
       request.destroy();

@@ -2,6 +2,11 @@
 /**
  * Salin file ini menjadi config.php di folder aplikasi, lalu isi detail database.
  * Jangan unggah config.php ke Git atau membagikan token bot kepada orang lain.
+ *
+ * Tabel database dibuat & diperbarui otomatis saat aplikasi pertama dibuka
+ * (lihat includes/app.php). Kalau ingin membuatnya manual lewat phpMyAdmin,
+ * impor file di folder database/: schema-mysql.sql (baru) atau
+ * upgrade-mysql.sql (untuk database yang sudah ada).
  */
 return [
     // Contoh format database MySQL dari panel hosting (InfinityFree / cPanel):

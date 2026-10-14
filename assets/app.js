@@ -37,6 +37,8 @@
     reportCustomEnd: localDateValue(),
     importType: null,
     importPreview: null,
+    modalReceipt: null,
+    proofContext: null,
   };
 
   const ICONS = {
@@ -70,6 +72,7 @@
     moon: '<path d="M20.2 15.7A8.6 8.6 0 0 1 8.3 3.8a8.8 8.8 0 1 0 11.9 11.9Z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    camera: '<path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
   };
 
@@ -240,6 +243,323 @@
 
   function closeModal() {
     modalRoot.innerHTML = '';
+    state.modalReceipt = null;
+    state.proofContext = null;
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Bukti gambar: kompres di browser, lalu simpan ke database
+   * ---------------------------------------------------------------- */
+
+  const RECEIPT_LIMITS = {
+    maxSide: 1600,          // sisi terpanjang gambar yang disimpan
+    quality: 0.72,          // kualitas awal JPEG
+    maxBytes: 550 * 1024,   // target ukuran akhir per bukti
+    maxSourceBytes: 25 * 1024 * 1024,
+  };
+
+  function formatFileSize(bytes) {
+    const value = Math.max(0, Number(bytes || 0));
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function loadImageFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Gambar tidak bisa dibaca. Coba foto lain atau lewati bukti.')); };
+      image.src = url;
+    });
+  }
+
+  function canvasToBlob(canvas, quality) {
+    return new Promise((resolve) => {
+      if (typeof canvas.toBlob !== 'function') { resolve(null); return; }
+      canvas.toBlob((blob) => resolve(blob || null), 'image/jpeg', quality);
+    });
+  }
+
+  function scaleToCanvas(source, width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Browser ini tidak mendukung pengompresan gambar.');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+      reader.onerror = () => reject(new Error('Gambar gagal diproses di browser.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Foto dari HP itu besar (2–8 MB). Di sini gambar diperkecil & dikompres dulu,
+  // baru dikirim ke server, jadi database tetap ringan dan kuota hemat.
+  async function compressReceiptImage(file) {
+    if (!file) throw new Error('Belum ada gambar yang dipilih.');
+    if (!/^image\//i.test(file.type || '')) throw new Error('File bukti harus berupa gambar (JPG, PNG, atau WEBP).');
+    if (file.size > RECEIPT_LIMITS.maxSourceBytes) throw new Error(`Ukuran foto asli ${formatFileSize(file.size)}; maksimal 25 MB.`);
+    const image = await loadImageFile(file);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) throw new Error('Ukuran gambar tidak terbaca.');
+    const scale = Math.min(1, RECEIPT_LIMITS.maxSide / Math.max(width, height));
+    let canvas = scaleToCanvas(image, width * scale, height * scale);
+    let quality = RECEIPT_LIMITS.quality;
+    let blob = await canvasToBlob(canvas, quality);
+    let attempt = 0;
+    while ((!blob || blob.size > RECEIPT_LIMITS.maxBytes) && attempt < 9) {
+      attempt += 1;
+      if (quality > 0.45) {
+        quality = Math.max(0.45, quality - 0.09);
+        blob = await canvasToBlob(canvas, quality);
+        continue;
+      }
+      canvas = scaleToCanvas(canvas, canvas.width * 0.8, canvas.height * 0.8);
+      blob = await canvasToBlob(canvas, quality);
+    }
+    if (!blob) throw new Error('Gambar gagal dikompres di browser ini. Coba browser lain atau lewati bukti.');
+    if (blob.size > RECEIPT_LIMITS.maxBytes) {
+      throw new Error(`Gambar masih ${formatFileSize(blob.size)} setelah dikompres. Pilih foto lain atau lewati bukti.`);
+    }
+    const data = await blobToBase64(blob);
+    return {
+      data,
+      mime: 'image/jpeg',
+      width: canvas.width,
+      height: canvas.height,
+      name: `${String(file.name || 'bukti').replace(/\.[^.]+$/, '').slice(0, 80) || 'bukti'}.jpg`,
+      originalSize: file.size,
+      size: blob.size,
+      previewUrl: URL.createObjectURL(blob),
+    };
+  }
+
+  function receiptPayload() {
+    const receipt = state.modalReceipt;
+    if (!receipt || !receipt.data) return null;
+    return { data: receipt.data, mime: receipt.mime, width: receipt.width, height: receipt.height, name: receipt.name };
+  }
+
+  function receiptFieldMarkup(inputId) {
+    return `
+      <div class="field full-span receipt-field" data-receipt-field>
+        <label for="${inputId}">Bukti / foto <span class="text-muted" style="font-weight:400">(opsional, boleh dilewati)</span></label>
+        <div class="receipt-empty" data-receipt-empty>
+          <label class="receipt-drop" for="${inputId}">
+            <input class="receipt-input" id="${inputId}" type="file" accept="image/*" data-receipt-input>
+            <span class="receipt-drop-icon">${icon('camera')}</span>
+            <span class="receipt-drop-copy"><strong>Pilih foto bukti</strong><small>Foto nota, struk, atau barangnya</small></span>
+          </label>
+        </div>
+        <div class="receipt-preview" data-receipt-preview hidden>
+          <img class="receipt-thumb" data-receipt-thumb alt="Pratinjau bukti">
+          <span class="receipt-preview-copy"><strong data-receipt-name>bukti.jpg</strong><small data-receipt-meta></small></span>
+          <button class="btn btn-secondary btn-small" type="button" data-action="clear-receipt">Hapus gambar</button>
+        </div>
+        <p class="form-note receipt-note" data-receipt-note>Gambar dikecilkan & dikompres dulu di HP ini (maksimal 1600 px) sebelum masuk ke database. Tidak ada foto? Cukup simpan tanpa bukti.</p>
+      </div>`;
+  }
+
+  function paintReceiptPreview(root) {
+    const scope = root || modalRoot;
+    const preview = scope.querySelector('[data-receipt-preview]');
+    const empty = scope.querySelector('[data-receipt-empty]');
+    const receipt = state.modalReceipt;
+    if (!preview) return;
+    if (!receipt) {
+      preview.hidden = true;
+      if (empty) empty.hidden = false;
+      return;
+    }
+    preview.hidden = false;
+    if (empty) empty.hidden = true;
+    const thumb = preview.querySelector('[data-receipt-thumb]');
+    const name = preview.querySelector('[data-receipt-name]');
+    const meta = preview.querySelector('[data-receipt-meta]');
+    if (thumb) thumb.src = receipt.previewUrl;
+    if (name) name.textContent = receipt.name;
+    if (meta) meta.textContent = `${formatFileSize(receipt.size)} · ${receipt.width}×${receipt.height} px`;
+  }
+
+  function setReceiptNote(root, text) {
+    const note = (root || modalRoot).querySelector('[data-receipt-note]') || modalRoot.querySelector('[data-proof-note]');
+    if (note) note.textContent = text;
+  }
+
+  async function handleReceiptFile(input) {
+    const root = input.closest('[data-receipt-field]') || modalRoot;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    setReceiptNote(root, `Mengompres ${formatFileSize(file.size)}…`);
+    try {
+      const receipt = await compressReceiptImage(file);
+      state.modalReceipt = receipt;
+      paintReceiptPreview(root);
+      setReceiptNote(root, `Foto ${formatFileSize(receipt.originalSize)} → ${formatFileSize(receipt.size)} setelah dikompres (${receipt.width}×${receipt.height} px). Ini yang dikirim ke database.`);
+    } catch (error) {
+      state.modalReceipt = null;
+      paintReceiptPreview(root);
+      setReceiptNote(root, error.message);
+      showToast(error.message, 'error');
+    }
+  }
+
+  function clearReceipt(input) {
+    const root = input.closest('[data-receipt-field]') || modalRoot;
+    state.modalReceipt = null;
+    paintReceiptPreview(root);
+    setReceiptNote(root, 'Gambar dilepas. Kolom bukti boleh dikosongkan — simpan seperti biasa.');
+    const saveButton = modalRoot.querySelector('[data-action="save-proof"]');
+    if (saveButton) saveButton.disabled = true;
+  }
+
+  function findEntityRecord(entityType, id) {
+    const target = Number(id);
+    const pools = entityType === 'reminder'
+      ? [state.reminders?.reminders, state.dashboard?.reminders]
+      : [state.finance?.transactions, state.dashboard?.transactions];
+    for (const pool of pools) {
+      const found = (pool || []).find((row) => Number(row.id) === target);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function canManageEntity(entityType, record) {
+    if (state.user?.role === 'admin') return true;
+    if (!record) return false;
+    return entityType === 'reminder'
+      ? Number(record.created_by) === Number(state.user?.id)
+      : Number(record.user_id) === Number(state.user?.id);
+  }
+
+  function proofButton(entityType, record, { compact = false, alwaysShow = false } = {}) {
+    const attachment = record?.attachment || null;
+    const canManage = canManageEntity(entityType, record);
+    if (!attachment && !alwaysShow && !canManage) return '';
+    const label = attachment ? 'Lihat bukti gambar' : 'Tambah bukti gambar';
+    return `<button class="proof-button${attachment ? ' has-proof' : ''}${compact ? ' compact' : ''}" type="button" data-action="open-proof" data-entity="${entityType}" data-id="${Number(record?.id)}" aria-label="${label}" title="${label}">${icon('camera')}${compact ? '' : `<span>${attachment ? 'Bukti' : 'Tambah bukti'}</span>`}</button>`;
+  }
+
+  function openProofModal(entityType, entityId) {
+    const record = findEntityRecord(entityType, entityId) || { id: Number(entityId) };
+    const attachment = record.attachment || null;
+    const canManage = canManageEntity(entityType, record);
+    const isReminder = entityType === 'reminder';
+    state.modalReceipt = null;
+    state.proofContext = { entityType, entityId: Number(entityId), replace: !!attachment };
+    const meta = attachment
+      ? `${formatFileSize(attachment.bytes)} · ${attachment.width}×${attachment.height} px${attachment.created_at ? ` · ${dateTimeLabel(attachment.created_at)}` : ''}`
+      : '';
+    const uploadControl = (inputId) => `
+      <div class="receipt-empty" data-receipt-empty>
+        <label class="receipt-drop" for="${inputId}">
+          <input class="receipt-input" id="${inputId}" type="file" accept="image/*" data-proof-input>
+          <span class="receipt-drop-icon">${icon('camera')}</span>
+          <span class="receipt-drop-copy"><strong>${attachment ? 'Ganti foto bukti' : 'Pilih foto bukti'}</strong><small>Otomatis dikompres sebelum dikirim</small></span>
+        </label>
+      </div>
+      <div class="receipt-preview" data-receipt-preview hidden>
+        <img class="receipt-thumb" data-receipt-thumb alt="Pratinjau bukti">
+        <span class="receipt-preview-copy"><strong data-receipt-name>bukti.jpg</strong><small data-receipt-meta></small></span>
+        <button class="btn btn-secondary btn-small" type="button" data-action="clear-receipt">Hapus gambar</button>
+      </div>`;
+    const body = attachment
+      ? `<div class="modal-body proof-body">
+          <figure class="proof-figure"><img class="proof-image" src="${escapeHtml(attachment.url)}" alt="Bukti gambar" loading="lazy"></figure>
+          <p class="proof-meta">${escapeHtml(meta)}</p>
+          ${canManage ? `${uploadControl('proof-file')}<a class="btn btn-secondary" href="${escapeHtml(attachment.url)}&download=1" download>${icon('download')} Unduh gambar</a>` : ''}
+          <p class="proof-note" data-proof-note>${canManage ? 'Pilih foto baru untuk mengganti bukti yang tersimpan.' : 'Hanya pembuat catatan atau admin yang bisa mengubah bukti ini.'}</p>
+          <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Tutup</button>${canManage ? `<button class="btn btn-danger" type="button" data-action="delete-proof" data-id="${Number(attachment.id)}">${icon('trash')} Hapus bukti</button>` : ''}</div>
+        </div>`
+      : `<div class="modal-body proof-body">
+          <div class="proof-empty"><span class="proof-empty-icon">${icon('camera')}</span><strong>Belum ada bukti gambar</strong><p>Bukti bersifat opsional. Kalau tidak ada foto, catatan tetap tersimpan seperti biasa.</p></div>
+          ${canManage ? `${uploadControl('proof-file')}<p class="proof-note" data-proof-note>Foto akan dikompres di HP ini sebelum dikirim ke database.</p>
+          <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Tutup</button><button class="btn" type="button" data-action="save-proof" data-entity="${escapeHtml(entityType)}" data-id="${Number(entityId)}" disabled>${icon('check')} Simpan bukti</button></div>`
+            : `<p class="proof-note">Hanya pembuat catatan atau admin yang bisa menambahkan bukti.</p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Tutup</button></div>`}
+        </div>`;
+    openModal(isReminder ? 'Bukti pengingat' : 'Bukti transaksi', isReminder ? 'Simpan foto pendukung untuk pengingat ini.' : 'Foto nota, struk, atau transfer sebagai bukti catatan ini.', body, { widthClass: 'modal-proof' });
+  }
+
+  async function refreshAfterEntityChange(context = {}) {
+    state.dashboard = null;
+    if (!context.entityType || context.entityType === 'transaction') {
+      state.finance = null;
+      state.report = null;
+      state.reportKey = '';
+    }
+    if (!context.entityType || context.entityType === 'reminder') state.reminders = null;
+    await refreshPage(true);
+  }
+
+  async function handleProofFile(input) {
+    const context = state.proofContext || {};
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    setReceiptNote(modalRoot, `Mengompres ${formatFileSize(file.size)}…`);
+    let receipt;
+    try {
+      receipt = await compressReceiptImage(file);
+    } catch (error) {
+      setReceiptNote(modalRoot, error.message);
+      showToast(error.message, 'error');
+      return;
+    }
+    state.modalReceipt = receipt;
+    paintReceiptPreview(modalRoot);
+    setReceiptNote(modalRoot, `Foto ${formatFileSize(receipt.originalSize)} → ${formatFileSize(receipt.size)} setelah dikompres.`);
+    const saveButton = modalRoot.querySelector('[data-action="save-proof"]');
+    if (!context.replace && saveButton) {
+      saveButton.disabled = false;
+      return;
+    }
+    await uploadReceipt(context.entityType, context.entityId);
+  }
+
+  async function uploadReceipt(entityType, entityId, button = null) {
+    const receipt = receiptPayload();
+    if (!receipt) {
+      showToast('Pilih foto bukti terlebih dahulu.', 'error');
+      return;
+    }
+    if (button) button.disabled = true;
+    setReceiptNote(modalRoot, 'Mengunggah bukti ke database…');
+    try {
+      const result = await api('attachment/save', { entity_type: entityType, entity_id: Number(entityId), receipt });
+      showToast(result.message);
+      closeModal();
+      await refreshAfterEntityChange({ entityType });
+    } catch (error) {
+      setReceiptNote(modalRoot, error.message);
+      showToast(error.message, 'error');
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function deleteProof(id) {
+    if (!window.confirm('Hapus bukti gambar ini? Catatan keuangannya tetap tersimpan.')) return;
+    try {
+      const result = await api('attachment/delete', { id: Number(id) });
+      showToast(result.message);
+      const context = state.proofContext || {};
+      closeModal();
+      await refreshAfterEntityChange(context);
+    } catch (error) {
+      showToast(error.message, 'error');
+    }
   }
 
   function downloadImportTemplate(type) {
@@ -810,9 +1130,11 @@
     const income = item.kind === 'income';
     const owner = Number(item.user_id) === Number(state.user?.id);
     const canDelete = state.user?.role === 'admin' || owner;
+    const proof = item.attachment ? proofButton('transaction', item, { compact: true }) : '';
     return `<div class="transaction-row">
       <span class="transaction-glyph${income ? '' : ' expense'}">${icon(income ? 'arrowDown' : 'arrowUp')}</span>
       <span class="transaction-main"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short' }))}${!compact && item.created_by_name ? ` · ${escapeHtml(item.created_by_name)}` : ''}</small></span>
+      ${proof}
       <span class="transaction-amount${income ? '' : ' expense'}">${income ? '+' : '−'} ${money(item.amount)}</span>
     </div>`;
   }
@@ -822,7 +1144,8 @@
     const [year, month, day] = date.split('-');
     const shortMonth = month ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(Number(year), Number(month) - 1, 15))) : '';
     const time = String(item.reminder_at || '').slice(11, 16);
-    return `<div class="reminder-row"><span class="date-tile"><small>${escapeHtml(shortMonth)}</small><strong>${escapeHtml(day || '—')}</strong></span><span class="reminder-main"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(time)}${item.category ? ` · ${escapeHtml(item.category)}` : ''}</small></span></div>`;
+    const proof = item.attachment ? proofButton('reminder', item, { compact: true }) : '';
+    return `<div class="reminder-row"><span class="date-tile"><small>${escapeHtml(shortMonth)}</small><strong>${escapeHtml(day || '—')}</strong></span><span class="reminder-main"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(time)}${item.category ? ` · ${escapeHtml(item.category)}` : ''}</small></span>${proof}</div>`;
   }
 
   function financeMarkup() {
@@ -832,7 +1155,7 @@
     const rows = records.map((item) => {
       const income = item.kind === 'income';
       const canDelete = state.user?.role === 'admin' || Number(item.user_id) === Number(state.user?.id);
-      return `<tr><td><span class="table-title">${escapeHtml(item.title)}</span><span class="table-subtitle">${escapeHtml(item.note || item.created_by_name || ' ')}</span></td><td>${escapeHtml(item.category)}</td><td class="table-date">${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td class="table-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'} ${money(item.amount)}</td><td>${canDelete ? `<button class="table-action" type="button" data-action="delete-transaction" data-id="${Number(item.id)}" aria-label="Hapus transaksi">${icon('trash')}</button>` : ''}</td></tr>`;
+      return `<tr><td><span class="table-title">${escapeHtml(item.title)}</span><span class="table-subtitle">${escapeHtml(item.note || item.created_by_name || ' ')}</span></td><td>${escapeHtml(item.category)}</td><td class="table-date">${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td class="table-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'} ${money(item.amount)}</td><td class="table-actions-cell">${proofButton('transaction', item, { compact: true, alwaysShow: canDelete })}${canDelete ? `<button class="table-action" type="button" data-action="delete-transaction" data-id="${Number(item.id)}" aria-label="Hapus transaksi">${icon('trash')}</button>` : ''}</td></tr>`;
     }).join('');
     const target = Number(data.target || 0);
     const spent = Number(data.summary?.expense || 0);
@@ -1059,7 +1382,9 @@
     const isDone = item.status === 'done';
     const isOverdue = !isDone && `${date} ${time}` < `${localDateValue()} ${localDateTimeValue().slice(11)}`;
     const canDelete = state.user?.role === 'admin' || Number(item.created_by) === Number(state.user?.id);
-    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span>${escapeHtml(time)}</span></span><span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions"><button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canDelete ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
+    const proof = proofButton('reminder', item, { compact: true, alwaysShow: canDelete });
+    const thumb = item.attachment ? `<button class="reminder-thumb" type="button" data-action="open-proof" data-entity="reminder" data-id="${Number(item.id)}" aria-label="Lihat bukti gambar"><img src="${escapeHtml(item.attachment.url)}" alt="Bukti ${escapeHtml(item.title)}" loading="lazy"></button>` : '';
+    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span>${escapeHtml(time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canDelete ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
   }
 
   function membersMarkup() {
@@ -1072,6 +1397,19 @@
   function settingsMarkup() {
     const telegram = state.settings?.telegram || { connected: false, chat_id: '', token_hint: '' };
     const isAdmin = state.user?.role === 'admin';
+    const database = state.settings?.database || null;
+    const backupPanel = database ? `
+        <section class="card settings-card settings-backup"><div class="card-head"><div><h2 class="card-title">Backup &amp; database</h2><p class="settings-description">Semua catatan tersimpan permanen di database ${escapeHtml(database.driver)}.</p></div><span class="target-glyph">${icon('download')}</span></div>
+          <div class="backup-stats">
+            <article><span>Transaksi</span><strong>${Number(database.tables?.transactions || 0)}</strong></article>
+            <article><span>Pengingat</span><strong>${Number(database.tables?.reminders || 0)}</strong></article>
+            <article><span>Bukti gambar</span><strong>${Number(database.attachment_count || 0)}</strong></article>
+            <article><span>Ukuran bukti</span><strong>${escapeHtml(database.attachment_size || '0 B')}</strong></article>
+          </div>
+          <p class="settings-description backup-note">${database.file ? `File database lokal: <code>${escapeHtml(database.file)}</code>. ` : ''}Total ${Number(database.total_rows || 0)} baris data siap dicek kapan saja. Unduh file <code>.sql</code> untuk menyimpan salinan atau memindahkannya ke hosting lain.</p>
+          <div class="settings-actions"><a class="btn" href="/api.php?action=backup/download" download>${icon('download')} Unduh backup .sql</a></div>
+          <div class="security-tip"><strong>Catatan:</strong> file backup memuat seluruh catatan keuangan, pengingat, dan gambar bukti. Simpan di tempat aman dan jangan dibagikan. Struktur tabel untuk phpMyAdmin juga tersedia di folder <code>database/</code>.</div>
+        </section>` : '';
     const telegramPanel = isAdmin ? `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Pesan percobaan dan kabar pengingat akan dikirim ke Telegram.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Status koneksi bot untuk pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? 'Bot rumah sudah tersambung.' : 'Bot Telegram belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan bot dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p></section>`;
@@ -1079,6 +1417,7 @@
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Keamanan akun</h2><p class="settings-description">Sedang masuk sebagai <strong>${escapeHtml(state.user?.name)}</strong> (@${escapeHtml(state.user?.username)}).</p></div><span class="target-glyph">${icon('lock')}</span></div><form data-form="password-change" class="form-grid"><div class="field full-span"><label for="current-password">Kata sandi saat ini</label><input class="input" id="current-password" name="current_password" type="password" autocomplete="current-password" required></div><div class="field full-span"><label for="new-password">Kata sandi baru</label><input class="input" id="new-password" name="new_password" type="password" minlength="8" autocomplete="new-password" placeholder="Minimal 8 karakter" required></div><div class="field full-span"><label for="confirm-password">Ulangi kata sandi baru</label><input class="input" id="confirm-password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></div><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn btn-soft" type="submit">${icon('shield')} Ganti kata sandi</button></div></form><div class="security-tip"><strong>Saran:</strong> gunakan kata sandi unik dan jangan membagikan akun admin. Kata sandi disimpan dalam bentuk hash.</div></section>
         ${telegramPanel}
+        ${backupPanel}
       </div>`;
   }
 
@@ -1094,6 +1433,7 @@
         <div class="field"><label for="tx-category">Kategori</label><select class="select" id="tx-category" name="category">${categoryOptions}</select></div>
         <div class="field full-span"><label for="tx-date">Tanggal</label><input class="input" id="tx-date" name="date" type="date" value="${localDateValue()}" required></div>
         <div class="field full-span"><label for="tx-note">Catatan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="tx-note" name="note" maxlength="500" placeholder="Tambahkan detail kalau perlu…"></textarea></div>
+        ${receiptFieldMarkup('tx-receipt')}
       </div><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('check')} Simpan transaksi</button></div></form>`);
   }
 
@@ -1106,6 +1446,7 @@
         <div class="field"><label for="reminder-datetime">Tanggal & waktu</label><input class="input" id="reminder-datetime" name="reminder_at" type="datetime-local" value="${localDateTimeValue(later)}" required></div>
         <div class="field"><label for="reminder-category">Kategori</label><select class="select" id="reminder-category" name="category"><option>Perawatan</option><option>Tagihan</option><option>Kesehatan</option><option>Belanja</option><option>Rumah</option><option>Lainnya</option></select></div>
         <div class="field full-span"><label for="reminder-note">Catatan tambahan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="reminder-note" name="note" maxlength="500" placeholder="Contoh: Bengkel langganan dekat rumah"></textarea></div>
+        ${receiptFieldMarkup('reminder-receipt')}
       </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika bot Telegram terhubung, bot juga menerima notifikasi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} Simpan pengingat</button></div></form>`);
   }
 
@@ -1212,6 +1553,10 @@
       refreshPage(true);
     }
     else if (action === 'close-modal') closeModal();
+    else if (action === 'clear-receipt') clearReceipt(actionButton);
+    else if (action === 'open-proof') openProofModal(actionButton.dataset.entity || 'transaction', Number(actionButton.dataset.id));
+    else if (action === 'save-proof') await uploadReceipt(actionButton.dataset.entity || 'transaction', Number(actionButton.dataset.id), actionButton);
+    else if (action === 'delete-proof') await deleteProof(actionButton.dataset.id);
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
     else if (action === 'open-user') openUserModal();
@@ -1255,6 +1600,14 @@
       await handleImportFile(event.target.files?.[0]);
       return;
     }
+    if (event.target.matches('[data-receipt-input]')) {
+      await handleReceiptFile(event.target);
+      return;
+    }
+    if (event.target.matches('[data-proof-input]')) {
+      await handleProofFile(event.target);
+      return;
+    }
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;
@@ -1279,7 +1632,7 @@
         showToast(`Halo, ${result.user.name}! Selamat datang.`);
         await render();
       } else if (kind === 'transaction') {
-        const result = await api('transaction/create', { ...data, amount: Number(data.amount) });
+        const result = await api('transaction/create', { ...data, amount: Number(data.amount), receipt: receiptPayload() });
         closeModal();
         showToast(result.message);
         state.dashboard = null;
@@ -1288,7 +1641,7 @@
         state.reportKey = '';
         await refreshPage(true);
       } else if (kind === 'reminder') {
-        const result = await api('reminder/create', data);
+        const result = await api('reminder/create', { ...data, receipt: receiptPayload() });
         closeModal();
         showToast(result.telegram_sent ? 'Pengingat tersimpan dan kabarnya dikirim ke Telegram.' : 'Pengingat tersimpan. Telegram belum terhubung atau pesan belum terkirim.');
         state.dashboard = null;
