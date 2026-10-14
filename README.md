@@ -54,7 +54,7 @@ npm install
 npm start
 ```
 
-Buka alamat yang dicetak di terminal (biasanya `http://localhost:4173`), lalu login dengan akun awal di atas. Preview memakai SQLite dan menyimpan database lokal di `storage/rumahku.sqlite` (file ini diabaikan Git). Untuk menghentikan preview, tekan `Ctrl+C`.
+Buka alamat yang dicetak di terminal (biasanya `http://localhost:4173`), lalu login dengan akun awal di atas. Preview memakai SQLite dan menyimpan database lokal di `storage/rumahku.sqlite` (file ini diabaikan Git). Preview tidak punya akses internet, jadi koneksi ke Telegram tidak bisa diuji di sini. Untuk menghentikan preview, tekan `Ctrl+C`.
 
 ## Pasang di InfinityFree / shared hosting PHP
 
@@ -75,7 +75,7 @@ Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO M
 3. Login sebagai admin, buka **Pengaturan → Notifikasi Telegram**, tempel token, lalu pilih **Cari Chat ID**.
 4. Pilih **Simpan & hubungkan**. Aplikasi memverifikasi bot dan mengirim pesan percobaan. Setelah terhubung, setiap pengingat baru akan mengirim pesan ke chat tersebut.
 
-Token bot disimpan di database server dan tidak dikirim kembali ke browser. Koneksi keluar HTTPS dari hosting ke `api.telegram.org` harus diizinkan. Jika fitur Cari Chat ID tidak menemukan pesan, kirim `/start` lagi dan coba ulangi.
+Token bot disimpan di database server dan tidak dikirim kembali ke browser. Koneksi keluar HTTPS dari hosting ke `api.telegram.org` harus diizinkan — **hosting gratis InfinityFree memblokirnya**, lihat [Troubleshooting Telegram](#troubleshooting-telegram). Jika fitur Cari Chat ID tidak menemukan pesan, kirim `/start` lagi dan coba ulangi.
 
 ### Notifikasi saat waktu pengingat tiba
 
@@ -86,6 +86,24 @@ https://DOMAIN-KAMU/cron.php?key=RAHASIA_CRON
 ```
 
 Atur `cron_secret` di `config.php` dengan nilai acak rahasia minimal 32 karakter; endpoint akan menolak permintaan jika nilainya kosong atau salah. Jadwalkan setiap 5–15 menit. Jika paket gratis tidak menyediakan cron, gunakan scheduler eksternal yang tepercaya dan jangan membagikan URL/rahasia tersebut. Pesan saat pengingat **dibuat** tetap dikirim langsung jika bot sudah terhubung.
+
+### Troubleshooting Telegram
+
+**Error `Could not resolve host: api.telegram.org`** (atau pesan “Server hosting tidak bisa menghubungi Telegram”)
+
+Artinya **server hosting** tidak bisa menjangkau Telegram. Token dan Chat ID belum sempat diperiksa Telegram, jadi isiannya belum tentu salah. Aplikasi memanggil `https://api.telegram.org` dari server (bukan dari browser), sehingga hosting harus mengizinkan koneksi keluar ke sana.
+
+- **InfinityFree paket gratis memblokir koneksi keluar ke Telegram** karena penyalahgunaan. Error ini muncul walau token benar dan tidak bisa diatasi dari kode aplikasi ([penjelasan di forum InfinityFree](https://forum.infinityfree.com/t/request-post/116465)). Admin InfinityFree menyebut paket premium kemungkinan besar tidak memblokirnya, tetapi pastikan dulu ke penyedia hosting.
+- Di hosting lain: pastikan koneksi keluar HTTPS (port 443) ke `api.telegram.org` diizinkan dan ekstensi PHP cURL/OpenSSL aktif. Jika masih gagal, minta bantuan penyedia hosting.
+- `npm start` (preview lokal) memakai PHP WebAssembly tanpa akses internet, jadi Telegram tidak bisa diuji di sana. Aplikasi menampilkan pesan penjelasan, bukan error server.
+
+**Pesan lain setelah koneksi berhasil**
+
+- `Forbidden: bot can't initiate conversation with a user` → buka chat bot di Telegram, tekan **Start** (atau kirim `/start`), lalu coba lagi.
+- `Unauthorized` → token salah atau sudah dicabut; salin ulang dari @BotFather.
+- `Bad Request: chat not found` → Chat ID salah. Kirim `/start` ke bot lalu pakai tombol **Cari Chat ID**.
+
+**Token pernah terkirim ke chat atau tempat umum?** Anggap sudah bocor. Buka @BotFather → `/revoke` → pilih bot, lalu simpan token baru di **Pengaturan → Notifikasi Telegram**.
 
 ## Keamanan dan batasan
 

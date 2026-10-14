@@ -196,7 +196,8 @@
     node.className = `toast${type === 'error' ? ' error' : ''}`;
     node.innerHTML = `<span class="toast-icon">${icon(type === 'error' ? 'info' : 'check')}</span><span>${escapeHtml(message)}</span>`;
     toastRoot.appendChild(node);
-    window.setTimeout(() => node.remove(), 4400);
+    // Long explanations (such as network errors) need more reading time than a short confirmation.
+    window.setTimeout(() => node.remove(), Math.min(14000, Math.max(4400, String(message).length * 55)));
   }
 
   function showFormError(form, message) {

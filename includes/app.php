@@ -234,11 +234,50 @@ function app_telegram_credentials(): array
     ];
 }
 
+/** True inside the PHP WebAssembly build used by `npm start`; it has no internet access at all. */
+function app_is_wasm_preview(): bool
+{
+    return PHP_SAPI === 'wasm';
+}
+
+/**
+ * Explains a failed connection to Telegram in plain Indonesian.
+ * $code is the cURL error number (0 when unknown); $detail is the low-level message.
+ */
+function app_telegram_network_error(int $code, string $detail = ''): string
+{
+    // PHP warnings quote the full request URL, which contains the bot token.
+    $detail = trim((string) preg_replace('~bot\d+:[A-Za-z0-9_-]+~', 'bot***', $detail));
+    $suffix = $detail !== '' ? " (Detail: {$detail})" : '';
+
+    if (in_array($code, [5, 6], true) || preg_match('/getaddrinfo|name or service not known|could not resolve|name resolution|resolving timed out/i', $detail)) {
+        return 'Server hosting tidak bisa menghubungi Telegram: alamat api.telegram.org tidak ditemukan oleh DNS hosting. '
+            . 'Token dan Chat ID belum sempat diperiksa, jadi isiannya belum tentu salah. '
+            . 'Penyebab paling umum adalah hosting memblokir Telegram (InfinityFree paket gratis memang memblokirnya). '
+            . 'Lihat README bagian “Troubleshooting Telegram”.' . $suffix;
+    }
+    if (in_array($code, [35, 51, 58, 60, 77], true) || preg_match('/ssl|certificate/i', $detail)) {
+        return 'Server hosting gagal membuat koneksi aman (SSL) ke Telegram. '
+            . 'Biasanya sertifikat CA di server sudah usang, atau hosting memblokir/mengalihkan api.telegram.org. '
+            . 'Token dan Chat ID belum sempat diperiksa.' . $suffix;
+    }
+    if (in_array($code, [7, 28], true) || preg_match('/refused|timed out|timeout|unreachable|no route/i', $detail)) {
+        return 'Server hosting tidak berhasil tersambung ke Telegram (koneksi ditolak atau waktu habis). '
+            . 'Pastikan hosting mengizinkan koneksi keluar HTTPS (port 443) ke api.telegram.org; hosting gratis sering memblokirnya. '
+            . 'Token dan Chat ID belum sempat diperiksa.' . $suffix;
+    }
+    return 'Tidak bisa menghubungi Telegram. Cek koneksi keluar (HTTPS) dari hosting.' . $suffix;
+}
+
 /** Calls the Telegram Bot API over HTTPS. */
 function app_telegram_request(string $method, string $token, array $payload = []): array
 {
     if (!preg_match('/^[0-9]+:[A-Za-z0-9_-]{20,}$/', $token)) {
         return ['ok' => false, 'description' => 'Format token bot tidak valid.'];
+    }
+    if (app_is_wasm_preview()) {
+        // Opening a socket inside PHP-WASM throws a JS exception that takes the whole preview server down.
+        return ['ok' => false, 'description' => 'Preview lokal (npm start) tidak punya akses internet, jadi Telegram tidak bisa dihubungi dari sini. Uji fitur ini setelah situs diunggah ke hosting yang mengizinkan koneksi keluar ke api.telegram.org.'];
     }
     $url = 'https://api.telegram.org/bot' . $token . '/' . $method;
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -256,10 +295,11 @@ function app_telegram_request(string $method, string $token, array $payload = []
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $response = curl_exec($curl);
+        $curlErrno = curl_errno($curl);
         $curlError = curl_error($curl);
         curl_close($curl);
         if ($response === false) {
-            return ['ok' => false, 'description' => $curlError !== '' ? $curlError : 'Tidak bisa menghubungi Telegram.'];
+            return ['ok' => false, 'description' => app_telegram_network_error($curlErrno, $curlError)];
         }
     } else {
         $context = stream_context_create([
@@ -272,9 +312,11 @@ function app_telegram_request(string $method, string $token, array $payload = []
             ],
             'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
         ]);
+        error_clear_last();
         $response = @file_get_contents($url, false, $context);
         if ($response === false) {
-            return ['ok' => false, 'description' => 'Koneksi ke Telegram gagal. Cek koneksi keluar (HTTPS) dari hosting.'];
+            $lastError = error_get_last();
+            return ['ok' => false, 'description' => app_telegram_network_error(0, (string) ($lastError['message'] ?? ''))];
         }
     }
 
