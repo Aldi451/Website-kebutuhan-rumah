@@ -6,14 +6,15 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 
 - **Ringkasan keuangan:** saldo dari transaksi yang tercatat, pemasukan/pengeluaran bulan ini, grafik arus kas enam bulan, dan transaksi terbaru.
 - **Catat uang masuk & keluar:** kategori, tanggal, nominal Rupiah, catatan opsional, dan **bukti foto** yang boleh dikosongkan. Semua anggota rumah berbagi buku catatan yang sama; tiap baris tetap mencantumkan pembuatnya.
+- **Ubah catatan (edit):** transaksi pada tabel **Keuangan** dan pengingat pada daftar **Pengingat** bisa diedit lewat ikon pensil — nominal, tanggal, kategori, catatan, bahkan jenis transaksi atau jadwal pengingatnya. Bukti foto yang sudah ada tetap tersimpan kecuali kamu memilih foto baru.
 - **Laporan keuangan:** rekap per kategori untuk hari ini, bulan ini sampai hari ini, bulan lalu, tahun ini, tahun lalu, atau rentang tanggal. Bisa dibandingkan dengan periode sepadan (misalnya bensin bulan ini vs bulan lalu) dan diunduh sebagai CSV.
 - **Target pengeluaran bulanan:** buat batas belanja untuk bulan yang dipilih dan lihat progres dari total uang keluar.
 - **Bukti gambar:** foto nota, struk, transfer, atau kondisi barang bisa dilampirkan pada uang masuk/keluar maupun pengingat. Gambar **dikompres dulu di HP/browser** (maksimal 1600 px, ± 20–500 KB) lalu dikompres lagi di server, baru disimpan ke database. Fitur ini **opsional**: kolom bukti bisa dilewati kapan saja, dan bukti bisa ditambah, diganti, atau dihapus belakangan tanpa mengubah catatannya.
 - **Backup & cek database:** menu **Pengaturan** menampilkan jumlah baris tiap tabel dan ukuran bukti gambar yang tersimpan, plus tombol **Unduh backup .sql** untuk menyimpan salinan seluruh data (siap diimpor ke phpMyAdmin).
-- **Pengingat:** simpan judul, tanggal dan jam, kategori, catatan, dan bukti foto opsional, lalu tandai selesai atau hapus. Contoh: “Ganti oli motor” tanggal 26.
+- **Pengingat:** simpan judul, tanggal, **jam (opsional)**, kategori, catatan, dan bukti foto opsional, lalu ubah, tandai selesai, atau hapus. Contoh: “Ganti oli motor” tanggal 26 jam 10:30, atau “Bayar tagihan air” tanggal 20 **tanpa jam** (dianggap sepanjang hari).
 - **Import massal Excel:** unggah transaksi atau pengingat dari workbook `.xlsx` atau CSV, pratinjau baris yang valid, dan tambahkan sampai 500 baris sekaligus.
 - **Akun admin dan anggota:** admin dapat menambahkan akun anggota dan mengatur ulang kata sandinya. Setiap pengguna dapat mengganti kata sandi akunnya sendiri.
-- **Bot Telegram opsional:** bot menerima kabar saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba.
+- **Bot Telegram opsional:** bot menerima kabar saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba, ada tombol **Tes kirim pengingat** di Pengaturan, dan tiap pengingat punya tombol **kirim manual** supaya kabarnya bisa diteruskan kapan saja tanpa menunggu cron.
 - **Bahasa Indonesia dan Rupiah**, responsif untuk HP maupun desktop.
 
 ## Di mana datanya tersimpan (dan SQL-nya di mana)?
@@ -59,7 +60,7 @@ folder yang bisa diakses publik dan jangan bagikan file backup ke orang lain.
 
 1. Buka menu **Keuangan** atau **Pengingat**, lalu pilih **Import Excel**.
 2. Unduh template CSV yang sesuai (bisa dibuka dan diedit di Excel), atau pilih workbook `.xlsx` yang sudah ada. Format `.xls` lama perlu disimpan ulang sebagai `.xlsx` atau CSV UTF-8.
-3. Baris pertama pada sheet pertama harus berisi nama kolom. Untuk transaksi, kolom wajibnya **Jenis**, **Nama transaksi**, **Nominal**, dan **Tanggal**; jenis diisi `Pemasukan` atau `Pengeluaran`. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional dan akan menjadi 09:00 bila kosong. Kategori dan catatan bersifat opsional.
+3. Baris pertama pada sheet pertama harus berisi nama kolom. Untuk transaksi, kolom wajibnya **Jenis**, **Nama transaksi**, **Nominal**, dan **Tanggal**; jenis diisi `Pemasukan` atau `Pengeluaran`. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional — bila dikosongkan pengingatnya menjadi "sepanjang hari" dan kabarnya dikirim sekitar 09:00. Kategori dan catatan bersifat opsional.
 4. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per file, ukuran maksimal 10 MB.
 
 Setiap impor menambahkan catatan baru—mengunggah file yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan Telegram satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
@@ -77,6 +78,9 @@ Bukti bisa dilampirkan saat mencatat, atau ditambahkan belakangan.
    database tetap ringan. Server memeriksa ulang gambarnya dan mengompres sekali lagi (sekaligus
    menghapus data EXIF/GPS dari foto).
 4. Tidak ada foto? Lewati saja kolomnya — catatan tetap tersimpan seperti biasa.
+5. Saat **mengedit** transaksi atau pengingat, kolom bukti menampilkan info foto yang sudah
+   tersimpan. Pilih foto baru untuk mengganti (dikompres seperti biasa), atau biarkan kosong untuk
+   menyimpan bukti yang lama.
 
 Melihat, mengganti, atau menghapus bukti yang sudah tersimpan:
 
@@ -88,6 +92,47 @@ Melihat, mengganti, atau menghapus bukti yang sudah tersimpan:
   bisa melihat buktinya karena data rumah dibagikan bersama.
 - Batas aman di server: gambar hasil kiriman maksimal ± 1,6 MB dan 12.000 px; gambar yang lebih
   besar ditolak dengan pesan yang menjelaskan cara memperbaikinya.
+
+## Mengubah catatan, jam pengingat, dan kirim manual
+
+### Edit transaksi dan pengingat
+
+Catatan yang salah tidak perlu dihapus lalu dibuat ulang:
+
+1. Di tabel **Keuangan**, klik ikon **pensil** pada baris transaksi. Di daftar **Pengingat**, klik
+   ikon **pensil** pada kartunya.
+2. Ubah bagian mana pun: jenis transaksi (masuk/keluar), nama, nominal, kategori, tanggal,
+   catatan; untuk pengingat: judul, tanggal, jam, kategori, dan catatan.
+3. Simpan. Bukti foto yang sudah ada **tidak ikut terhapus** — pilih foto baru di modal edit bila
+   mau menggantinya, atau lewati kolomnya untuk membiarkan bukti yang lama.
+4. Kalau tanggal transaksi dipindah ke bulan lain, tabel Keuangan otomatis membuka bulan yang baru
+   supaya perubahannya langsung terlihat.
+5. Menggeser jadwal pengingat ke masa depan membuat cron boleh mengirim kabar lagi pada waktu yang
+   baru; jadwal yang masih di masa lalu tidak dikirim ulang.
+
+Izinnya sama seperti menghapus: pembuat catatan atau admin rumah.
+
+### Jam pengingat itu opsional
+
+Kolom **Tanggal** wajib, kolom **Jam** boleh dikosongkan:
+
+- **Diisi jam** → daftar menampilkan jamnya, dan kabar Telegram dikirim pada jam itu (WIB).
+- **Dikosongkan** → pengingat dianggap **sepanjang hari**; daftar menampilkan “Seharian” dengan
+  tanda “Tanpa jam”, dan kabarnya dikirim sekitar **09:00** pada tanggal tersebut.
+- Tombol **Tanpa jam** di sebelah kolom jam menghapus isian jam kapan saja, termasuk saat mengedit
+  pengingat lama yang sudah punya jam.
+
+### Tes dan kirim pengingat manual
+
+- **Pengaturan → Notifikasi Telegram → Tes kirim pengingat** (admin): mengirim contoh pesan
+  pengingat ke chat Telegram supaya bentuk kabarnya bisa dicek tanpa membuat catatan baru.
+  Tombol **Tes bot** mengirim pesan percobaan koneksi yang lebih singkat.
+- **Daftar Pengingat → ikon kirim** pada tiap pengingat: meneruskan pengingat itu ke Telegram saat
+  itu juga. Berguna untuk menguji notifikasi, mengingatkan anggota rumah sekali lagi, atau
+  menutupi cron yang belum terpasang. Pengingat yang sudah jatuh tempo dan dikirim manual ditandai
+  sudah dikabari, jadi cron tidak mengirim pesan yang sama dua kali.
+- Semua anggota rumah yang login boleh memakai tombol kirim manual; hasilnya masuk ke chat Telegram
+  rumah yang sama.
 
 ## Laporan keuangan
 
@@ -138,6 +183,7 @@ Ekstensi PHP yang dipakai: **PDO MySQL/SQLite** (wajib), **GD** (untuk kompresi 
 2. Buka chat bot tersebut dan kirim `/start`.
 3. Login sebagai admin, buka **Pengaturan → Notifikasi Telegram**, tempel token, lalu pilih **Cari Chat ID**.
 4. Pilih **Simpan & hubungkan**. Aplikasi memverifikasi bot dan mengirim pesan percobaan. Setelah terhubung, setiap pengingat baru akan mengirim pesan ke chat tersebut.
+5. Uji bentuk kabarnya dengan **Tes kirim pengingat**, atau teruskan pengingat tertentu kapan saja lewat ikon kirim pada daftar **Pengingat**.
 
 Token bot disimpan di database server dan tidak dikirim kembali ke browser. Koneksi keluar HTTPS dari hosting ke `api.telegram.org` harus diizinkan — **hosting gratis InfinityFree memblokirnya**, lihat [Troubleshooting Telegram](#troubleshooting-telegram). Jika fitur Cari Chat ID tidak menemukan pesan, kirim `/start` lagi dan coba ulangi.
 
@@ -149,7 +195,9 @@ Pengingat tetap tersimpan dan terlihat di situs tanpa cron, tetapi pesan Telegra
 https://DOMAIN-KAMU/cron.php?key=RAHASIA_CRON
 ```
 
-Atur `cron_secret` di `config.php` dengan nilai acak rahasia minimal 32 karakter; endpoint akan menolak permintaan jika nilainya kosong atau salah. Jadwalkan setiap 5–15 menit. Jika paket gratis tidak menyediakan cron, gunakan scheduler eksternal yang tepercaya dan jangan membagikan URL/rahasia tersebut. Pesan saat pengingat **dibuat** tetap dikirim langsung jika bot sudah terhubung.
+Atur `cron_secret` di `config.php` dengan nilai acak rahasia minimal 32 karakter; endpoint akan menolak permintaan jika nilainya kosong atau salah. Jadwalkan setiap 5–15 menit. Jika paket gratis tidak menyediakan cron, gunakan scheduler eksternal yang tepercaya dan jangan membagikan URL/rahasia tersebut — atau kirim manual lewat ikon kirim pada daftar **Pengingat** saat dibutuhkan. Pesan saat pengingat **dibuat** tetap dikirim langsung jika bot sudah terhubung.
+
+Pengingat **sepanjang hari** (tanpa jam) tersimpan pada 09:00 di tanggalnya, jadi cron yang jalan tiap 5–15 menit akan mengirim kabarnya pagi itu.
 
 ### Troubleshooting Telegram
 
@@ -173,7 +221,8 @@ Artinya **server hosting** tidak bisa menjangkau Telegram. Token dan Chat ID bel
 
 - Password akun disimpan dalam bentuk hash, bukan teks biasa. API menggunakan prepared statement, session cookie `HttpOnly`/`SameSite`, dan perlindungan CSRF.
 - `storage/` berisi database SQLite lokal dan ditolak oleh `.htaccess`. Untuk hosting, gunakan MySQL dan jangan membuat database dapat diakses publik.
-- Akun anggota yang ditambahkan berbagi data rumah bersama. Penghapusan catatan dibatasi pada pembuatnya atau admin.
+- Akun anggota yang ditambahkan berbagi data rumah bersama. Penghapusan, pengeditan catatan, dan penggantian bukti gambar dibatasi pada pembuatnya atau admin rumah.
+- Tombol **kirim manual** pengingat boleh dipakai semua anggota yang login, dan pesannya masuk ke chat Telegram rumah yang sama — jadi jangan dipakai untuk mengirim berkali-kali tanpa perlu.
 - Satu target pengeluaran disimpan untuk tiap bulan. Target mengukur **pengeluaran yang sudah dicatat**, jadi hasilnya bergantung pada kelengkapan input transaksi.
 - Gambar bukti disimpan di dalam database (tabel `attachments`) dalam bentuk JPEG terkompresi, biasanya puluhan sampai ratusan KB per gambar. Karena itu jaga ukurannya: kuota database hosting gratis umumnya terbatas, dan menghapus bukti yang tidak diperlukan akan mengembalikan ruang.
 - Bukti gambar bisa dilihat semua anggota rumah yang login (seperti catatan lain). Jangan simpan foto yang tidak ingin dilihat anggota lain.

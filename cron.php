@@ -17,7 +17,7 @@ try {
 
     $pdo = app_db();
     $now = date('Y-m-d H:i:s');
-    $query = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.note, u.display_name AS created_by_name
+    $query = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, u.display_name AS created_by_name
         FROM reminders r LEFT JOIN users u ON u.id = r.created_by
         WHERE r.status = 'pending' AND r.reminder_at <= :now AND r.due_notified_at IS NULL
         ORDER BY r.reminder_at ASC LIMIT 50");
@@ -27,7 +27,8 @@ try {
     $sent = 0;
     $failed = 0;
     foreach ($reminders as $reminder) {
-        $message = "⏰ Pengingat rumah • waktunya dicek\n\n" . $reminder['title'] . "\n" . date('d M Y, H.i', strtotime((string) $reminder['reminder_at'])) . " WIB\nKategori: " . $reminder['category'] . "\nDibuat oleh: " . ($reminder['created_by_name'] ?: 'Anggota rumah') . ((string) ($reminder['note'] ?? '') !== '' ? "\n\nCatatan: " . $reminder['note'] : '');
+        // Bentuk pesannya sama dengan kabar yang dikirim saat pengingat dibuat/dikirim manual.
+        $message = app_reminder_message($reminder, '⏰ Pengingat rumah • waktunya dicek');
         $result = app_send_telegram($message);
         if ($result['ok'] ?? false) {
             $update = $pdo->prepare('UPDATE reminders SET due_notified_at = :notified WHERE id = :id AND due_notified_at IS NULL');

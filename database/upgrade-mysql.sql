@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS attachments (
 ALTER TABLE reminders ADD COLUMN completed_at DATETIME NULL;
 ALTER TABLE reminders ADD COLUMN due_notified_at DATETIME NULL;
 
+-- 2b. Jam pada pengingat bersifat opsional. Kolom ini menandai apakah
+--     penggunanya menentukan jam (1) atau hanya tanggal / sepanjang hari (0).
+ALTER TABLE reminders ADD COLUMN has_time TINYINT(1) NOT NULL DEFAULT 1;
+
 -- 3. Indeks bantu laporan (abaikan bila sudah ada) --------------------
 --    Berguna saat isi tabel sudah banyak.
 

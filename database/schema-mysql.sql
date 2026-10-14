@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     title VARCHAR(120) NOT NULL,
     category VARCHAR(40) NOT NULL DEFAULT 'Lainnya',
     reminder_at DATETIME NOT NULL,
+    has_time TINYINT(1) NOT NULL DEFAULT 1,  -- 0 = pengingat sepanjang hari (jam tidak ditentukan)
     note TEXT NULL,
     status VARCHAR(12) NOT NULL DEFAULT 'pending',
     created_by INT UNSIGNED NOT NULL,
