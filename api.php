@@ -156,7 +156,7 @@ try {
         }
 
         $recentQuery = $pdo->query('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id ORDER BY t.transaction_date DESC, t.id DESC LIMIT 7');
-        $reminderQuery = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = 'pending' ORDER BY r.reminder_at ASC LIMIT 4");
+        $reminderQuery = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = 'pending' ORDER BY r.reminder_at ASC LIMIT 4");
         $reminderQuery->execute();
         $reminderCounts = $pdo->query("SELECT status, COUNT(*) AS total FROM reminders GROUP BY status")->fetchAll();
         $counts = ['pending' => 0, 'done' => 0];
@@ -528,6 +528,41 @@ try {
         ]);
     }
 
+    // Mengubah transaksi yang sudah tercatat: jenis, nama, kategori, nominal, tanggal, catatan.
+    if ($action === 'transaction/update' && $method === 'POST') {
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            app_json(['ok' => false, 'message' => 'Transaksi tidak ditemukan.'], 422);
+        }
+        $owner = app_entity_owner_id($pdo, 'transaction', (int) $id);
+        if ($owner === null) {
+            app_json(['ok' => false, 'message' => 'Transaksi sudah tidak ada.'], 404);
+        }
+        if (!app_can_manage_entity($user, $owner)) {
+            app_json(['ok' => false, 'message' => 'Kamu hanya bisa mengubah transaksi yang kamu catat.'], 403);
+        }
+        $kind = (string) ($input['kind'] ?? '');
+        $title = trim((string) ($input['title'] ?? ''));
+        $category = trim((string) ($input['category'] ?? 'Lainnya'));
+        $amount = filter_var($input['amount'] ?? null, FILTER_VALIDATE_INT);
+        $date = trim((string) ($input['date'] ?? ''));
+        $note = trim((string) ($input['note'] ?? ''));
+        if (!in_array($kind, ['income', 'expense'], true) || $title === '' || strlen($title) > 100 || $category === '' || strlen($category) > 40 || $amount === false || $amount < 1 || $amount > 999999999999 || !app_valid_date($date) || strlen($note) > 500) {
+            app_json(['ok' => false, 'message' => 'Periksa lagi detail transaksi. Nominal harus lebih dari Rp 0.'], 422);
+        }
+        $update = $pdo->prepare('UPDATE transactions SET kind = :kind, title = :title, category = :category, amount = :amount, transaction_date = :date, note = :note WHERE id = :id');
+        $update->execute([
+            ':kind' => $kind, ':title' => $title, ':category' => $category,
+            ':amount' => $amount, ':date' => $date, ':note' => $note === '' ? null : $note, ':id' => $id,
+        ]);
+        app_json([
+            'ok' => true,
+            'message' => 'Transaksi berhasil diperbarui.',
+            'transaction_date' => $date,
+            'month' => substr($date, 0, 7),
+        ]);
+    }
+
     if ($action === 'transactions/import' && $method === 'POST') {
         $rows = $input['rows'] ?? null;
         if (!is_array($rows) || $rows === [] || count($rows) > 500) {
@@ -628,9 +663,9 @@ try {
             $status = 'all';
         }
         if ($status === 'all') {
-            $query = $pdo->query('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by ORDER BY CASE WHEN r.status = \'pending\' THEN 0 ELSE 1 END, CASE WHEN r.status = \'pending\' THEN r.reminder_at END ASC, CASE WHEN r.status = \'done\' THEN r.completed_at END DESC LIMIT 1000');
+            $query = $pdo->query('SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by ORDER BY CASE WHEN r.status = \'pending\' THEN 0 ELSE 1 END, CASE WHEN r.status = \'pending\' THEN r.reminder_at END ASC, CASE WHEN r.status = \'done\' THEN r.completed_at END DESC LIMIT 1000');
         } else {
-            $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = :status ORDER BY reminder_at ASC LIMIT 1000');
+            $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, r.created_at, r.completed_at, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = :status ORDER BY reminder_at ASC LIMIT 1000');
             $query->execute([':status' => $status]);
         }
         app_json(['ok' => true, 'reminders' => array_map('app_clean_reminder', app_attach_receipts($pdo, $query->fetchAll(), 'reminder'))]);
@@ -639,21 +674,24 @@ try {
     if ($action === 'reminder/create' && $method === 'POST') {
         $title = trim((string) ($input['title'] ?? ''));
         $category = trim((string) ($input['category'] ?? 'Lainnya'));
-        $reminderAt = app_valid_datetime_local((string) ($input['reminder_at'] ?? ''));
+        // Jam bersifat opsional: tanggal saja disimpan sebagai pengingat "sepanjang hari".
+        $when = app_resolve_reminder_when($input);
         $note = trim((string) ($input['note'] ?? ''));
-        if ($title === '' || strlen($title) > 120 || $category === '' || strlen($category) > 40 || $reminderAt === null || strlen($note) > 500) {
-            app_json(['ok' => false, 'message' => 'Isi judul dan waktu pengingat dengan benar.'], 422);
+        if ($title === '' || strlen($title) > 120 || $category === '' || strlen($category) > 40 || $when === null || strlen($note) > 500) {
+            app_json(['ok' => false, 'message' => 'Isi judul dan tanggal pengingat dengan benar.'], 422);
         }
+        $reminderAt = $when['at'];
+        $hasTime = (int) $when['has_time'];
         try {
             $receipt = app_receipt_payload($input);
         } catch (RuntimeException $error) {
             app_json(['ok' => false, 'message' => 'Bukti gambar belum bisa dipakai: ' . $error->getMessage()], 422);
         }
-        $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, note, status, created_by, created_at) VALUES (:title, :category, :at, :note, :status, :user, :created)');
+        $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, has_time, note, status, created_by, created_at) VALUES (:title, :category, :at, :has_time, :note, :status, :user, :created)');
         $pdo->beginTransaction();
         try {
             $insert->execute([
-                ':title' => $title, ':category' => $category, ':at' => $reminderAt,
+                ':title' => $title, ':category' => $category, ':at' => $reminderAt, ':has_time' => $hasTime,
                 ':note' => $note === '' ? null : $note, ':status' => 'pending',
                 ':user' => $user['id'], ':created' => $now,
             ]);
@@ -668,13 +706,18 @@ try {
             }
             throw $error;
         }
-        $telegram = app_send_telegram("🔔 Pengingat rumah\n\n{$title}\n" . date('d M Y, H.i', strtotime($reminderAt)) . " WIB\nKategori: {$category}\nDibuat oleh: {$user['display_name']}" . ($note !== '' ? "\n\nCatatan: {$note}" : '') . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
+        $telegram = app_send_telegram(app_reminder_message([
+            'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
+            'note' => $note, 'created_by_name' => $user['display_name'],
+        ]) . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
         app_json([
             'ok' => true,
-            'message' => $receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.',
+            'message' => trim(($receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.')
+                . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')),
             'telegram_sent' => (bool) ($telegram['ok'] ?? false),
             'telegram_message' => (string) ($telegram['description'] ?? ''),
             'has_receipt' => $receipt !== null,
+            'has_time' => $hasTime,
         ]);
     }
 
@@ -694,28 +737,29 @@ try {
             }
             $title = trim((string) ($row['title'] ?? ''));
             $category = trim((string) ($row['category'] ?? 'Lainnya'));
-            $reminderAt = app_valid_datetime_local((string) ($row['reminder_at'] ?? ''));
+            // Jam boleh kosong pada file impor: barisnya menjadi pengingat "sepanjang hari".
+            $when = app_resolve_reminder_when(is_array($row) ? $row : []);
             $note = trim((string) ($row['note'] ?? ''));
             $problems = [];
             if ($title === '' || strlen($title) > 120) $problems[] = 'judul wajib diisi (maks. 120 karakter)';
             if ($category === '' || strlen($category) > 40) $problems[] = 'kategori tidak valid';
-            if ($reminderAt === null) $problems[] = 'tanggal atau waktu tidak valid';
+            if ($when === null) $problems[] = 'tanggal atau waktu tidak valid';
             if (strlen($note) > 500) $problems[] = 'catatan maksimal 500 karakter';
             if ($problems !== []) {
                 $errors[] = ['row' => $rowNumber, 'message' => implode('; ', $problems)];
                 continue;
             }
-            $validRows[] = ['title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'note' => $note];
+            $validRows[] = ['title' => $title, 'category' => $category, 'reminder_at' => $when['at'], 'has_time' => (int) $when['has_time'], 'note' => $note];
         }
         if ($validRows === []) {
             app_json(['ok' => false, 'message' => 'Tidak ada pengingat valid untuk diimpor.', 'imported' => 0, 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)], 422);
         }
-        $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, note, status, created_by, created_at) VALUES (:title, :category, :at, :note, :status, :user, :created)');
+        $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, has_time, note, status, created_by, created_at) VALUES (:title, :category, :at, :has_time, :note, :status, :user, :created)');
         $pdo->beginTransaction();
         try {
             foreach ($validRows as $row) {
                 $insert->execute([
-                    ':title' => $row['title'], ':category' => $row['category'], ':at' => $row['reminder_at'],
+                    ':title' => $row['title'], ':category' => $row['category'], ':at' => $row['reminder_at'], ':has_time' => $row['has_time'],
                     ':note' => $row['note'] === '' ? null : $row['note'], ':status' => 'pending',
                     ':user' => $user['id'], ':created' => $now,
                 ]);
@@ -726,6 +770,49 @@ try {
             throw $error;
         }
         app_json(['ok' => true, 'message' => 'Pengingat berhasil diimpor.', 'imported' => count($validRows), 'skipped' => count($errors), 'errors' => array_slice($errors, 0, 20)]);
+    }
+
+    // Mengubah pengingat yang sudah ada: judul, tanggal, jam (opsional), kategori, catatan.
+    if ($action === 'reminder/update' && $method === 'POST') {
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            app_json(['ok' => false, 'message' => 'Pengingat tidak ditemukan.'], 422);
+        }
+        $existingQuery = $pdo->prepare('SELECT reminder_at, status, due_notified_at FROM reminders WHERE id = :id LIMIT 1');
+        $existingQuery->execute([':id' => $id]);
+        $existing = $existingQuery->fetch();
+        if (!$existing) {
+            app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
+        }
+        if (!app_can_manage_entity($user, app_entity_owner_id($pdo, 'reminder', (int) $id))) {
+            app_json(['ok' => false, 'message' => 'Kamu hanya bisa mengubah pengingat yang kamu buat.'], 403);
+        }
+        $title = trim((string) ($input['title'] ?? ''));
+        $category = trim((string) ($input['category'] ?? 'Lainnya'));
+        $when = app_resolve_reminder_when($input);
+        $note = trim((string) ($input['note'] ?? ''));
+        if ($title === '' || strlen($title) > 120 || $category === '' || strlen($category) > 40 || $when === null || strlen($note) > 500) {
+            app_json(['ok' => false, 'message' => 'Isi judul dan tanggal pengingat dengan benar.'], 422);
+        }
+        $reminderAt = $when['at'];
+        $hasTime = (int) $when['has_time'];
+        // Kalau waktunya dipindah ke masa depan, cron boleh mengirim kabar lagi pada jadwal baru.
+        // Kalau masih di masa lalu, status "sudah dikabari" dibiarkan supaya tidak mengirim ulang.
+        $timeChanged = (string) $existing['reminder_at'] !== $reminderAt;
+        $resetNotify = $timeChanged && $reminderAt > $now && (string) $existing['status'] === 'pending';
+        $update = $pdo->prepare('UPDATE reminders SET title = :title, category = :category, reminder_at = :at, has_time = :has_time, note = :note' . ($resetNotify ? ', due_notified_at = NULL' : '') . ' WHERE id = :id');
+        $update->execute([
+            ':title' => $title, ':category' => $category, ':at' => $reminderAt, ':has_time' => $hasTime,
+            ':note' => $note === '' ? null : $note, ':id' => $id,
+        ]);
+        app_json([
+            'ok' => true,
+            'message' => $hasTime === 0
+                ? 'Pengingat diperbarui (sepanjang hari, kabar dikirim sekitar ' . app_default_reminder_time() . ').'
+                : 'Pengingat berhasil diperbarui.',
+            'has_time' => $hasTime,
+            'renotified' => $resetNotify,
+        ]);
     }
 
     if ($action === 'reminder/toggle' && $method === 'POST') {
@@ -764,6 +851,56 @@ try {
         $delete = $pdo->prepare('DELETE FROM reminders WHERE id = :id');
         $delete->execute([':id' => $id]);
         app_json(['ok' => true, 'message' => 'Pengingat dihapus.']);
+    }
+
+    // Kirim kabar satu pengingat ke Telegram secara manual: untuk menguji notifikasi
+    // atau menyampaikan ulang pengingat yang cron-nya belum jalan.
+    if ($action === 'reminder/send' && $method === 'POST') {
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            app_json(['ok' => false, 'message' => 'Pengingat tidak ditemukan.'], 422);
+        }
+        $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.due_notified_at, u.display_name AS created_by_name
+            FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.id = :id LIMIT 1');
+        $query->execute([':id' => $id]);
+        $reminder = $query->fetch();
+        if (!$reminder) {
+            app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
+        }
+        $result = app_send_telegram(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
+        if (!($result['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
+        }
+        // Pengingat yang sudah jatuh tempo dianggap sudah dikabari, supaya cron tidak mengirim dua kali.
+        $markedNotified = false;
+        if ((string) $reminder['status'] === 'pending' && $reminder['due_notified_at'] === null && (string) $reminder['reminder_at'] <= $now) {
+            $update = $pdo->prepare('UPDATE reminders SET due_notified_at = :notified WHERE id = :id AND due_notified_at IS NULL');
+            $update->execute([':notified' => $now, ':id' => $id]);
+            $markedNotified = true;
+        }
+        app_json([
+            'ok' => true,
+            'message' => 'Kabar pengingat “' . (string) $reminder['title'] . '” dikirim ke Telegram.',
+            'marked_notified' => $markedNotified,
+        ]);
+    }
+
+    // Uji bentuk pesan pengingat tanpa membuat catatan baru (untuk admin, dari menu Pengaturan).
+    if ($action === 'reminder/test' && $method === 'POST') {
+        app_require_admin($user);
+        $sample = [
+            'title' => 'Contoh pengingat: bayar tagihan listrik',
+            'category' => 'Tagihan',
+            'reminder_at' => date('Y-m-d H:i:s', strtotime('+2 hours')),
+            'has_time' => 1,
+            'note' => 'Ini pesan uji coba dari menu Pengaturan. Pengingat sungguhan dikirim otomatis saat waktunya tiba.',
+            'created_by_name' => (string) $user['display_name'],
+        ];
+        $result = app_send_telegram(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
+        if (!($result['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
+        }
+        app_json(['ok' => true, 'message' => 'Contoh pesan pengingat berhasil dikirim ke Telegram.']);
     }
 
     // Menambah atau mengganti bukti gambar pada transaksi/pengingat yang sudah ada.
@@ -1011,5 +1148,7 @@ function app_clean_reminder(array $row): array
 {
     $row['id'] = (int) $row['id'];
     $row['created_by'] = (int) $row['created_by'];
+    // has_time 0 = pengingat sepanjang hari (jam tidak ditentukan pengguna).
+    $row['has_time'] = isset($row['has_time']) && (int) $row['has_time'] === 0 ? 0 : 1;
     return $row;
 }

@@ -74,6 +74,7 @@
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
     camera: '<path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   };
 
   const NAV_ITEMS = [
@@ -226,6 +227,22 @@
     }
   }
 
+  // Menjalankan aksi tombol (kirim Telegram, dsb.) dengan status sibuk + penanganan galat yang seragam.
+  async function withBusyButton(button, task, busyText = '') {
+    if (!button) { await task(); return; }
+    const original = button.innerHTML;
+    button.disabled = true;
+    if (busyText) button.textContent = busyText;
+    try {
+      await task();
+    } catch (error) {
+      showToast(error.message, 'error');
+    } finally {
+      button.disabled = false;
+      button.innerHTML = original;
+    }
+  }
+
   function openModal(title, subtitle, body, { widthClass = '' } = {}) {
     modalRoot.innerHTML = `
       <div class="modal-backdrop" data-modal-backdrop>
@@ -257,6 +274,9 @@
     maxBytes: 550 * 1024,   // target ukuran akhir per bukti
     maxSourceBytes: 25 * 1024 * 1024,
   };
+
+  // Jam yang dipakai server untuk pengingat tanpa jam (sepanjang hari).
+  const DEFAULT_REMINDER_TIME = '09:00';
 
   function formatFileSize(bytes) {
     const value = Math.max(0, Number(bytes || 0));
@@ -351,15 +371,19 @@
     return { data: receipt.data, mime: receipt.mime, width: receipt.width, height: receipt.height, name: receipt.name };
   }
 
-  function receiptFieldMarkup(inputId) {
+  function receiptFieldMarkup(inputId, existing = null) {
+    const existingNote = existing
+      ? `<p class="form-note receipt-existing">${icon('camera')} Bukti sudah tersimpan (${escapeHtml(formatFileSize(existing.bytes))}${existing.width ? ` · ${Number(existing.width)}×${Number(existing.height)} px` : ''}). Pilih foto baru untuk menggantinya, atau lewati kolom ini untuk membiarkan bukti yang lama.</p>`
+      : '';
     return `
       <div class="field full-span receipt-field" data-receipt-field>
         <label for="${inputId}">Bukti / foto <span class="text-muted" style="font-weight:400">(opsional, boleh dilewati)</span></label>
+        ${existingNote}
         <div class="receipt-empty" data-receipt-empty>
           <label class="receipt-drop" for="${inputId}">
             <input class="receipt-input" id="${inputId}" type="file" accept="image/*" data-receipt-input>
             <span class="receipt-drop-icon">${icon('camera')}</span>
-            <span class="receipt-drop-copy"><strong>Pilih foto bukti</strong><small>Foto nota, struk, atau barangnya</small></span>
+            <span class="receipt-drop-copy"><strong>${existing ? 'Ganti foto bukti' : 'Pilih foto bukti'}</strong><small>Foto nota, struk, atau barangnya</small></span>
           </label>
         </div>
         <div class="receipt-preview" data-receipt-preview hidden>
@@ -529,6 +553,18 @@
     await uploadReceipt(context.entityType, context.entityId);
   }
 
+  // Saat mengedit catatan, bukti baru dikirim terpisah: kalau unggahannya gagal,
+  // perubahannya tetap tersimpan dan bukti yang lama tidak hilang.
+  async function replaceReceipt(entityType, entityId, receipt) {
+    if (!receipt) return '';
+    try {
+      await api('attachment/save', { entity_type: entityType, entity_id: Number(entityId), receipt });
+      return ` Bukti baru ikut tersimpan (${formatFileSize(receipt.size)}).`;
+    } catch (error) {
+      return ` Catatan tersimpan, tetapi bukti gambar gagal diganti: ${error.message}`;
+    }
+  }
+
   async function uploadReceipt(entityType, entityId, button = null) {
     const receipt = receiptPayload();
     if (!receipt) {
@@ -583,7 +619,7 @@
     state.importPreview = null;
     const reminders = type === 'reminders';
     const instructions = reminders
-      ? 'Kolom wajib: Judul dan Tanggal. Isi Jam dengan format 09:30; jika kosong, akan dipakai 09:00.'
+      ? 'Kolom wajib: Judul dan Tanggal. Kolom Jam opsional (format 09:30); biarkan kosong bila pengingatnya cukup per tanggal — kabarnya dikirim sekitar 09:00.'
       : 'Kolom wajib: Jenis (Pemasukan/Pengeluaran), Nama transaksi, Nominal, dan Tanggal (YYYY-MM-DD).';
     openModal(reminders ? 'Import pengingat' : 'Import keuangan', 'Unggah banyak baris sekaligus dari Excel atau CSV.', `
       <div class="modal-body import-modal-body">
@@ -767,20 +803,26 @@
           : indexes.date >= 0 ? importCell(row, indexes.date) : importCell(row, indexes.timeCombined);
         const dateParts = parseImportDate(combinedDate);
         const separateTime = indexes.time >= 0 ? parseImportTime(importCell(row, indexes.time)) : '';
-        const time = separateTime || dateParts?.time || '09:00';
-        const reminderAt = dateParts ? `${dateParts.date}T${time}` : '';
+        // Jam opsional: baris tanpa jam diimpor sebagai pengingat sepanjang hari.
+        const time = separateTime || dateParts?.time || '';
+        const reminderDate = dateParts?.date || '';
         const category = String(importCell(row, indexes.category) || 'Lainnya').trim();
         const note = String(importCell(row, indexes.note) ?? '').trim();
         const reasons = [];
         if (!title || title.length > 120) reasons.push('Judul wajib diisi (maks. 120 karakter)');
-        if (!reminderAt) reasons.push('Tanggal atau waktu tidak valid');
+        if (!reminderDate) reasons.push('Tanggal tidak valid');
         if (!category || category.length > 40) reasons.push('Kategori maksimal 40 karakter');
         if (note.length > 500) reasons.push('Catatan maksimal 500 karakter');
         if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; ') });
-        else valid.push({ row: row.number, data: { title, category, reminder_at: reminderAt, note } });
+        else valid.push({ row: row.number, data: { title, category, reminder_date: reminderDate, reminder_time: time, note } });
       }
     }
     return { valid, invalid };
+  }
+
+  function reminderImportLabel(data) {
+    const date = dateLabel(data.reminder_date, { day: 'numeric', month: 'short', year: 'numeric' });
+    return data.reminder_time ? `${date}, ${data.reminder_time}` : `${date} · seharian`;
   }
 
   function renderImportPreview() {
@@ -795,7 +837,7 @@
     if (fileNameNode) fileNameNode.textContent = preview.fileName;
     const reminders = preview.type === 'reminders';
     const sample = preview.valid.slice(0, 5).map((item) => reminders
-      ? `<tr><td>${escapeHtml(dateTimeLabel(item.data.reminder_at))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`
+      ? `<tr><td>${escapeHtml(reminderImportLabel(item.data))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`
       : `<tr><td>${escapeHtml(dateLabel(item.data.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td>${item.data.kind === 'income' ? 'Masuk' : 'Keluar'}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(money(item.data.amount))}</td></tr>`).join('');
     const headers = reminders ? '<th>Tanggal & jam</th><th>Judul</th><th>Kategori</th>' : '<th>Tanggal</th><th>Jenis</th><th>Transaksi</th><th>Nominal</th>';
     const invalidList = preview.invalid.slice(0, 5).map((item) => `<li>Baris ${Number(item.row)}: ${escapeHtml(item.reason)}</li>`).join('');
@@ -1143,7 +1185,8 @@
     const date = String(item.reminder_at || '').slice(0, 10);
     const [year, month, day] = date.split('-');
     const shortMonth = month ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(Number(year), Number(month) - 1, 15))) : '';
-    const time = String(item.reminder_at || '').slice(11, 16);
+    const allDay = Number(item.has_time ?? 1) === 0;
+    const time = allDay ? 'Seharian' : String(item.reminder_at || '').slice(11, 16);
     const proof = item.attachment ? proofButton('reminder', item, { compact: true }) : '';
     return `<div class="reminder-row"><span class="date-tile"><small>${escapeHtml(shortMonth)}</small><strong>${escapeHtml(day || '—')}</strong></span><span class="reminder-main"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(time)}${item.category ? ` · ${escapeHtml(item.category)}` : ''}</small></span>${proof}</div>`;
   }
@@ -1154,8 +1197,8 @@
     const records = (data.transactions || []).filter((item) => state.transactionFilter === 'all' || item.kind === state.transactionFilter);
     const rows = records.map((item) => {
       const income = item.kind === 'income';
-      const canDelete = state.user?.role === 'admin' || Number(item.user_id) === Number(state.user?.id);
-      return `<tr><td><span class="table-title">${escapeHtml(item.title)}</span><span class="table-subtitle">${escapeHtml(item.note || item.created_by_name || ' ')}</span></td><td>${escapeHtml(item.category)}</td><td class="table-date">${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td class="table-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'} ${money(item.amount)}</td><td class="table-actions-cell">${proofButton('transaction', item, { compact: true, alwaysShow: canDelete })}${canDelete ? `<button class="table-action" type="button" data-action="delete-transaction" data-id="${Number(item.id)}" aria-label="Hapus transaksi">${icon('trash')}</button>` : ''}</td></tr>`;
+      const canManage = canManageEntity('transaction', item);
+      return `<tr><td><span class="table-title">${escapeHtml(item.title)}</span><span class="table-subtitle">${escapeHtml(item.note || item.created_by_name || ' ')}</span></td><td>${escapeHtml(item.category)}</td><td class="table-date">${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td class="table-amount ${income ? 'income' : 'expense'}">${income ? '+' : '−'} ${money(item.amount)}</td><td class="table-actions-cell">${proofButton('transaction', item, { compact: true, alwaysShow: canManage })}${canManage ? `<button class="table-action edit" type="button" data-action="edit-transaction" data-id="${Number(item.id)}" aria-label="Ubah transaksi" title="Ubah transaksi">${icon('edit')}</button><button class="table-action" type="button" data-action="delete-transaction" data-id="${Number(item.id)}" aria-label="Hapus transaksi" title="Hapus transaksi">${icon('trash')}</button>` : ''}</td></tr>`;
     }).join('');
     const target = Number(data.target || 0);
     const spent = Number(data.summary?.expense || 0);
@@ -1370,21 +1413,25 @@
         <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${reminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon coral">${icon('check')}</span><span><strong>${done}</strong><span>Selesai · ${total} total</span></span></article>
       </div>
-      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Agenda yang dibuat keluarga</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
+      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Agenda yang dibuat keluarga · bisa diubah, dikirim ulang ke Telegram, atau ditandai selesai</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
   }
 
   function reminderItem(item) {
     const dateTime = String(item.reminder_at || '').replace('T', ' ');
     const date = dateTime.slice(0, 10);
-    const time = dateTime.slice(11, 16);
+    const allDay = Number(item.has_time ?? 1) === 0;
+    const time = allDay ? '' : dateTime.slice(11, 16);
     const [year, month, day] = date.split('-').map(Number);
     const monthShort = month ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15))) : '';
     const isDone = item.status === 'done';
-    const isOverdue = !isDone && `${date} ${time}` < `${localDateValue()} ${localDateTimeValue().slice(11)}`;
-    const canDelete = state.user?.role === 'admin' || Number(item.created_by) === Number(state.user?.id);
-    const proof = proofButton('reminder', item, { compact: true, alwaysShow: canDelete });
+    // Pengingat sepanjang hari baru disebut lewat jadwal setelah tanggalnya berlalu.
+    const isOverdue = !isDone && (allDay ? date < localDateValue() : `${date} ${time}` < `${localDateValue()} ${localDateTimeValue().slice(11)}`);
+    const canManage = canManageEntity('reminder', item);
+    const proof = proofButton('reminder', item, { compact: true, alwaysShow: canManage });
     const thumb = item.attachment ? `<button class="reminder-thumb" type="button" data-action="open-proof" data-entity="reminder" data-id="${Number(item.id)}" aria-label="Lihat bukti gambar"><img src="${escapeHtml(item.attachment.url)}" alt="Bukti ${escapeHtml(item.title)}" loading="lazy"></button>` : '';
-    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span>${escapeHtml(time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canDelete ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
+    const sendButton = `<button class="send-button" type="button" data-action="send-reminder" data-id="${Number(item.id)}" aria-label="Kirim pengingat ini ke Telegram sekarang" title="Kirim ke Telegram sekarang">${icon('send')}</button>`;
+    const editButton = canManage ? `<button class="edit-button" type="button" data-action="edit-reminder" data-id="${Number(item.id)}" aria-label="Ubah pengingat" title="Ubah pengingat">${icon('edit')}</button>` : '';
+    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${sendButton}${editButton}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
   }
 
   function membersMarkup() {
@@ -1411,7 +1458,7 @@
           <div class="security-tip"><strong>Catatan:</strong> file backup memuat seluruh catatan keuangan, pengingat, dan gambar bukti. Simpan di tempat aman dan jangan dibagikan. Struktur tabel untuk phpMyAdmin juga tersedia di folder <code>database/</code>.</div>
         </section>` : '';
     const telegramPanel = isAdmin ? `
-        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Pesan percobaan dan kabar pengingat akan dikirim ke Telegram.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README.</div></section>` : `
+        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-secondary" type="button" data-action="reminder-test">${icon('bell')} Tes kirim pengingat</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Pesan percobaan dan kabar pengingat akan dikirim ke Telegram.</li><li>Uji bentuk kabarnya dengan <strong>Tes kirim pengingat</strong>. Untuk pengingat tertentu, pakai ikon kirim pada daftar <strong>Pengingat</strong> supaya langsung diteruskan ke Telegram.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar otomatis saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README. Kalau hosting belum menyediakan cron, kirim manual dari daftar pengingat.</div></section>` : `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Status koneksi bot untuk pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? 'Bot rumah sudah tersambung.' : 'Bot Telegram belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan bot dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p></section>`;
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke Telegram' : ''}.</p></div></div>
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
@@ -1421,33 +1468,74 @@
       </div>`;
   }
 
-  function openTransactionModal(kind = 'expense') {
-    const selected = kind === 'income' ? 'income' : 'expense';
-    const categories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
-    const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
-    openModal(selected === 'income' ? 'Catat uang masuk' : 'Catat uang keluar', 'Biar arus kas rumah tetap kebaca dan nggak mengandalkan ingatan.', `
-      <form class="modal-body" data-form="transaction"><div class="form-grid">
+  function openTransactionModal(kind = 'expense', record = null) {
+    const editing = !!record;
+    const selected = editing ? (record.kind === 'income' ? 'income' : 'expense') : (kind === 'income' ? 'income' : 'expense');
+    const baseCategories = selected === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
+    // Kategori dari file impor bisa di luar daftar; tetap ditampilkan agar tidak hilang saat diedit.
+    const currentCategory = editing ? String(record.category || '') : '';
+    const categories = currentCategory && !baseCategories.includes(currentCategory) ? [...baseCategories, currentCategory] : baseCategories;
+    const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}"${name === currentCategory ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+    openModal(
+      editing ? (selected === 'income' ? 'Ubah uang masuk' : 'Ubah uang keluar') : (selected === 'income' ? 'Catat uang masuk' : 'Catat uang keluar'),
+      editing ? 'Perbaiki nominal, tanggal, atau catatannya tanpa perlu menghapus lalu mencatat ulang.' : 'Biar arus kas rumah tetap kebaca dan nggak mengandalkan ingatan.',
+      `
+      <form class="modal-body" data-form="transaction"${editing ? ' data-mode="edit"' : ''}><div class="form-grid">
+        ${editing ? `<input type="hidden" name="id" value="${Number(record.id)}">` : ''}
         <div class="field full-span"><label for="tx-kind">Jenis transaksi</label><select class="select" id="tx-kind" name="kind" data-transaction-kind><option value="expense"${selected === 'expense' ? ' selected' : ''}>Uang keluar</option><option value="income"${selected === 'income' ? ' selected' : ''}>Uang masuk</option></select></div>
-        <div class="field full-span"><label for="tx-title">Nama transaksi</label><input class="input" id="tx-title" name="title" type="text" maxlength="100" placeholder="Contoh: Belanja mingguan" required></div>
-        <div class="field"><label for="tx-amount">Nominal</label><input class="input" id="tx-amount" name="amount" type="number" min="1" step="1000" placeholder="150000" required></div>
+        <div class="field full-span"><label for="tx-title">Nama transaksi</label><input class="input" id="tx-title" name="title" type="text" maxlength="100" value="${escapeHtml(editing ? record.title : '')}" placeholder="Contoh: Belanja mingguan" required></div>
+        <div class="field"><label for="tx-amount">Nominal</label><input class="input" id="tx-amount" name="amount" type="number" min="1" step="1000" value="${editing ? Number(record.amount) : ''}" placeholder="150000" required></div>
         <div class="field"><label for="tx-category">Kategori</label><select class="select" id="tx-category" name="category">${categoryOptions}</select></div>
-        <div class="field full-span"><label for="tx-date">Tanggal</label><input class="input" id="tx-date" name="date" type="date" value="${localDateValue()}" required></div>
-        <div class="field full-span"><label for="tx-note">Catatan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="tx-note" name="note" maxlength="500" placeholder="Tambahkan detail kalau perlu…"></textarea></div>
-        ${receiptFieldMarkup('tx-receipt')}
-      </div><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('check')} Simpan transaksi</button></div></form>`);
+        <div class="field full-span"><label for="tx-date">Tanggal</label><input class="input" id="tx-date" name="date" type="date" value="${escapeHtml(editing ? String(record.transaction_date || '').slice(0, 10) : localDateValue())}" required></div>
+        <div class="field full-span"><label for="tx-note">Catatan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="tx-note" name="note" maxlength="500" placeholder="Tambahkan detail kalau perlu…">${escapeHtml(editing ? record.note || '' : '')}</textarea></div>
+        ${receiptFieldMarkup('tx-receipt', editing ? record.attachment : null)}
+      </div><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('check')} ${editing ? 'Simpan perubahan' : 'Simpan transaksi'}</button></div></form>`);
   }
 
-  function openReminderModal() {
+  function openReminderModal(record = null) {
+    const editing = !!record;
     const later = new Date(Date.now() + 60 * 60 * 1000);
     later.setMinutes(Math.ceil(later.getMinutes() / 5) * 5, 0, 0);
-    openModal('Buat pengingat', 'Tulis agenda rumah, pilih waktunya, nanti tinggal cek kembali.', `
-      <form class="modal-body" data-form="reminder"><div class="form-grid">
-        <div class="field full-span"><label for="reminder-title">Apa yang perlu diingat?</label><input class="input" id="reminder-title" name="title" type="text" maxlength="120" placeholder="Contoh: Ganti oli motor" required></div>
-        <div class="field"><label for="reminder-datetime">Tanggal & waktu</label><input class="input" id="reminder-datetime" name="reminder_at" type="datetime-local" value="${localDateTimeValue(later)}" required></div>
-        <div class="field"><label for="reminder-category">Kategori</label><select class="select" id="reminder-category" name="category"><option>Perawatan</option><option>Tagihan</option><option>Kesehatan</option><option>Belanja</option><option>Rumah</option><option>Lainnya</option></select></div>
-        <div class="field full-span"><label for="reminder-note">Catatan tambahan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="reminder-note" name="note" maxlength="500" placeholder="Contoh: Bengkel langganan dekat rumah"></textarea></div>
-        ${receiptFieldMarkup('reminder-receipt')}
-      </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika bot Telegram terhubung, bot juga menerima notifikasi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} Simpan pengingat</button></div></form>`);
+    const source = String(record?.reminder_at || '').replace('T', ' ');
+    // Jam bersifat opsional: pengingat lama tanpa jam (has_time = 0) dibuka dengan kolom jam kosong.
+    const storedTime = editing ? (Number(record.has_time ?? 1) === 0 ? '' : source.slice(11, 16)) : localDateTimeValue(later).slice(11);
+    const dateValue = editing ? source.slice(0, 10) : localDateValue(later);
+    const baseCategories = ['Perawatan', 'Tagihan', 'Kesehatan', 'Belanja', 'Rumah', 'Lainnya'];
+    const currentCategory = editing ? String(record.category || 'Lainnya') : 'Perawatan';
+    const categoryOptions = (baseCategories.includes(currentCategory) ? baseCategories : [...baseCategories, currentCategory])
+      .map((name) => `<option value="${escapeHtml(name)}"${name === currentCategory ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+    openModal(
+      editing ? 'Ubah pengingat' : 'Buat pengingat',
+      editing ? 'Geser tanggal/jamnya atau perbaiki isinya; jadwal Telegram mengikuti waktu yang baru.' : 'Tulis agenda rumah, pilih tanggalnya, lalu tambahkan jam kalau memang perlu.',
+      `
+      <form class="modal-body" data-form="reminder"${editing ? ' data-mode="edit"' : ''}><div class="form-grid">
+        ${editing ? `<input type="hidden" name="id" value="${Number(record.id)}">` : ''}
+        <div class="field full-span"><label for="reminder-title">Apa yang perlu diingat?</label><input class="input" id="reminder-title" name="title" type="text" maxlength="120" value="${escapeHtml(editing ? record.title : '')}" placeholder="Contoh: Ganti oli motor" required></div>
+        <div class="field"><label for="reminder-date">Tanggal</label><input class="input" id="reminder-date" name="reminder_date" type="date" value="${escapeHtml(dateValue)}" required></div>
+        <div class="field"><label for="reminder-time">Jam <span class="text-muted" style="font-weight:400">(opsional)</span></label>
+          <div class="time-input-row"><input class="input" id="reminder-time" name="reminder_time" type="time" value="${escapeHtml(storedTime)}" data-reminder-time aria-describedby="reminder-time-note"><button class="btn btn-secondary btn-small" type="button" data-action="clear-reminder-time"${storedTime ? '' : ' hidden'}>Tanpa jam</button></div>
+          <p class="form-note" id="reminder-time-note" data-reminder-time-note></p>
+        </div>
+        <div class="field full-span"><label for="reminder-category">Kategori</label><select class="select" id="reminder-category" name="category">${categoryOptions}</select></div>
+        <div class="field full-span"><label for="reminder-note">Catatan tambahan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="reminder-note" name="note" maxlength="500" placeholder="Contoh: Bengkel langganan dekat rumah">${escapeHtml(editing ? record.note || '' : '')}</textarea></div>
+        ${receiptFieldMarkup('reminder-receipt', editing ? record.attachment : null)}
+      </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika bot Telegram terhubung, bot juga menerima notifikasi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} ${editing ? 'Simpan perubahan' : 'Simpan pengingat'}</button></div></form>`);
+    syncReminderTimeHint();
+  }
+
+  // Menjelaskan apa arti kolom jam yang kosong, supaya tidak ada yang bingung.
+  function syncReminderTimeHint() {
+    const input = modalRoot.querySelector('[data-reminder-time]');
+    if (!input) return;
+    const time = input.value;
+    const note = modalRoot.querySelector('[data-reminder-time-note]');
+    if (note) {
+      note.textContent = time
+        ? `Kabar pengingat dikirim sekitar jam ${time} WIB pada tanggal itu.`
+        : `Tanpa jam: dianggap pengingat sepanjang hari, kabarnya dikirim sekitar ${DEFAULT_REMINDER_TIME} WIB.`;
+    }
+    const clearButton = modalRoot.querySelector('[data-action="clear-reminder-time"]');
+    if (clearButton) clearButton.hidden = !time;
   }
 
   function openUserModal() {
@@ -1508,6 +1596,15 @@
     } catch (error) { showToast(error.message, 'error'); }
   }
 
+  // Meneruskan satu pengingat ke Telegram sekarang: untuk menguji notifikasi
+  // atau menyampaikan pengingat yang cron-nya belum sempat jalan.
+  async function sendReminderNow(button) {
+    await withBusyButton(button, async () => {
+      const result = await api('reminder/send', { id: Number(button.dataset.id) });
+      showToast(result.message);
+    });
+  }
+
   async function doLogout() {
     try {
       const result = await api('logout', {});
@@ -1559,6 +1656,25 @@
     else if (action === 'delete-proof') await deleteProof(actionButton.dataset.id);
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
+    else if (action === 'edit-transaction') {
+      const record = findEntityRecord('transaction', actionButton.dataset.id);
+      if (!record) { showToast('Data transaksi belum termuat. Muat ulang halaman lalu coba lagi.', 'error'); return; }
+      openTransactionModal(record.kind, record);
+    }
+    else if (action === 'edit-reminder') {
+      const record = findEntityRecord('reminder', actionButton.dataset.id);
+      if (!record) { showToast('Data pengingat belum termuat. Muat ulang halaman lalu coba lagi.', 'error'); return; }
+      openReminderModal(record);
+    }
+    else if (action === 'send-reminder') await sendReminderNow(actionButton);
+    else if (action === 'clear-reminder-time') {
+      const timeInput = modalRoot.querySelector('[data-reminder-time]');
+      if (timeInput) { timeInput.value = ''; syncReminderTimeHint(); }
+    }
+    else if (action === 'reminder-test') await withBusyButton(actionButton, async () => {
+      const result = await api('reminder/test', {});
+      showToast(result.message);
+    }, 'Mengirim…');
     else if (action === 'open-user') openUserModal();
     else if (action === 'logout') doLogout();
     else if (action === 'retry') refreshPage(true);
@@ -1608,11 +1724,18 @@
       await handleProofFile(event.target);
       return;
     }
+    if (event.target.matches('[data-reminder-time]')) {
+      syncReminderTimeHint();
+      return;
+    }
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;
     const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
-    category.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
+    // Kategori yang sedang terpilih tetap dipertahankan walau jenisnya diganti.
+    const current = category.value;
+    if (current && !options.includes(current)) options.push(current);
+    category.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}"${value === current ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('');
   });
 
   document.addEventListener('submit', async (event) => {
@@ -1632,18 +1755,39 @@
         showToast(`Halo, ${result.user.name}! Selamat datang.`);
         await render();
       } else if (kind === 'transaction') {
-        const result = await api('transaction/create', { ...data, amount: Number(data.amount), receipt: receiptPayload() });
+        const recordId = form.dataset.mode === 'edit' ? Number(data.id || 0) : 0;
+        const receipt = receiptPayload();
+        const result = recordId
+          ? await api('transaction/update', { id: recordId, kind: data.kind, title: data.title, category: data.category, amount: Number(data.amount), date: data.date, note: data.note || '' })
+          : await api('transaction/create', { ...data, amount: Number(data.amount), receipt });
+        const receiptNote = recordId ? await replaceReceipt('transaction', recordId, receipt) : '';
         closeModal();
-        showToast(result.message);
+        showToast(result.message + receiptNote);
         state.dashboard = null;
         state.finance = null;
         state.report = null;
         state.reportKey = '';
+        // Transaksi yang dipindah ke bulan lain langsung ditampilkan tanpa perlu mencari manual.
+        if (recordId && result.month && state.financeMonth !== result.month) state.financeMonth = result.month;
         await refreshPage(true);
       } else if (kind === 'reminder') {
-        const result = await api('reminder/create', { ...data, receipt: receiptPayload() });
+        const recordId = form.dataset.mode === 'edit' ? Number(data.id || 0) : 0;
+        const receipt = receiptPayload();
+        const payload = {
+          title: data.title,
+          category: data.category,
+          reminder_date: data.reminder_date,
+          reminder_time: data.reminder_time || '',
+          note: data.note || '',
+        };
+        const result = recordId
+          ? await api('reminder/update', { id: recordId, ...payload })
+          : await api('reminder/create', { ...payload, receipt });
+        const receiptNote = recordId ? await replaceReceipt('reminder', recordId, receipt) : '';
         closeModal();
-        showToast(result.telegram_sent ? 'Pengingat tersimpan dan kabarnya dikirim ke Telegram.' : 'Pengingat tersimpan. Telegram belum terhubung atau pesan belum terkirim.');
+        showToast(recordId
+          ? result.message + receiptNote
+          : `${result.message}${result.telegram_sent ? ' Kabarnya juga dikirim ke Telegram.' : ' Telegram belum terhubung atau pesan belum terkirim.'}${receiptNote}`);
         state.dashboard = null;
         state.reminders = null;
         await refreshPage(true);

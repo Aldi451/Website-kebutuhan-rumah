@@ -139,6 +139,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 .form-grid .full-span { grid-column: 1 / -1; }
 .form-note { margin: -2px 0 0; color: #8c999f; font-size: 10px; line-height: 1.5; }
+.time-input-row { display: flex; align-items: center; gap: 7px; }
+.time-input-row .input { flex: 1; min-width: 0; }
+.time-input-row .btn-small { flex: 0 0 auto; white-space: nowrap; }
 .error-text { color: #b74f40; font-size: 11px; }
 
 /* Bulk data import */
@@ -255,6 +258,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .status-pill::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .status-pill.status-done { color: #8d979b; background: #f0f2f3; }
 .status-pill.status-overdue { color: #ad604d; background: #fff0ea; }
+.status-pill.status-allday { color: #6c7f96; background: #eef3f9; }
 .empty-state { display: grid; justify-items: center; padding: 26px 18px 29px; color: #98a5a9; text-align: center; }
 .empty-illustration { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 10px; border-radius: 14px; color: #6d9d8d; background: #edf7f2; }
 .empty-illustration svg { width: 19px; height: 19px; }
@@ -283,6 +287,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .table-date { color: #75858b; white-space: nowrap; }
 .table-action { padding: 5px; border: 0; color: #b2bdc0; background: transparent; }
 .table-action:hover { color: #b95645; }
+.table-action.edit:hover { color: var(--brand-dark); }
 .table-action svg { width: 14px; height: 14px; }
 .target-edit-card { padding: 19px; }
 .target-edit-card .card-head { padding: 0; }
@@ -384,6 +389,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .delete-button { display: inline-grid; place-items: center; width: 31px; height: 31px; border: 1px solid transparent; border-radius: 10px; color: #a8b2b4; background: transparent; }
 .delete-button:hover { color: #b45645; border-color: #f1dfdc; background: #fff5f2; }
 .delete-button svg { width: 14px; height: 14px; }
+.edit-button, .send-button { display: inline-grid; place-items: center; width: 31px; height: 31px; border: 1px solid transparent; border-radius: 10px; background: transparent; }
+.edit-button { color: #8fa4ab; }
+.edit-button:hover { color: var(--brand-dark); border-color: #d3e6e2; background: #f4fbf9; }
+.edit-button svg { width: 14px; height: 14px; }
+.send-button { color: #93a5b4; }
+.send-button:hover { color: #4d7fb2; border-color: #dde8f3; background: #f5f9fd; }
+.send-button svg { width: 14px; height: 14px; }
+.edit-button:disabled, .send-button:disabled, .check-button:disabled, .delete-button:disabled { opacity: .45; }
+.reminder-date-box span.all-day { color: #7f9a8f; font-size: 7px; font-weight: 700; letter-spacing: .2px; text-transform: uppercase; }
 
 /* Members and settings */
 .members-grid { grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); align-items: start; }
@@ -456,6 +470,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .receipt-preview-copy strong { overflow: hidden; color: #3f5851; font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .receipt-preview-copy small { color: #93a3a0; font-size: 9px; }
 .receipt-note { min-height: 15px; }
+.receipt-existing { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid #dcece5; border-radius: 10px; color: #4c7265; background: #f6fbf8; }
+.receipt-existing svg { flex: 0 0 auto; width: 13px; height: 13px; }
 .receipt-note.is-busy { color: var(--brand); }
 
 .proof-button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border: 1px dashed #d9e3e1; border-radius: 9px; color: #8b9b98; background: #fff; font-size: 9px; font-weight: 700; white-space: nowrap; transition: color .15s ease, border-color .15s ease, background .15s ease; }
@@ -564,10 +580,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .reminder-stat strong { font-size: 16px; }
   .reminder-toolbar { align-items: flex-start; flex-direction: column; padding: 14px; }
   .reminder-list-page { padding: 0 14px; }
-  .reminder-item { align-items: flex-start; gap: 10px; }
+  .reminder-item { flex-wrap: wrap; align-items: flex-start; gap: 10px; }
   .reminder-date-box { width: 43px; height: 50px; }
   .reminder-copy { padding-top: 2px; }
-  .reminder-actions { flex-direction: column; margin-left: 0; }
+  .reminder-actions { width: 100%; margin: 2px 0 0; justify-content: flex-end; }
   .settings-card { padding: 16px; }
   .settings-backup .backup-stats { grid-template-columns: 1fr 1fr; }
   .receipt-preview { flex-wrap: wrap; }

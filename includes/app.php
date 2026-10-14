@@ -143,11 +143,15 @@ function app_schema_statements(bool $mysql): array
         updated_at DATETIME NOT NULL
     ){$engine}";
 
+    // has_time = 1 bila pengguna menentukan jam; 0 bila pengingatnya "sepanjang hari"
+    // (jamnya tetap diisi default supaya cron punya waktu kirim yang pasti).
+    $flag = $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1';
     $statements[] = "CREATE TABLE IF NOT EXISTS reminders (
         id {$id},
         title VARCHAR(120) NOT NULL,
         category VARCHAR(40) NOT NULL DEFAULT 'Lainnya',
         reminder_at DATETIME NOT NULL,
+        has_time {$flag},
         note TEXT NULL,
         status VARCHAR(12) NOT NULL DEFAULT 'pending',
         created_by {$int},
@@ -224,6 +228,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
     // Pembaruan otomatis untuk database yang dibuat oleh versi aplikasi sebelumnya.
     app_ensure_column($pdo, $mysql, 'reminders', 'completed_at', 'DATETIME NULL');
     app_ensure_column($pdo, $mysql, 'reminders', 'due_notified_at', 'DATETIME NULL');
+    app_ensure_column($pdo, $mysql, 'reminders', 'has_time', $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1');
 
     $adminCount = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
     if ($adminCount === 0) {
@@ -442,6 +447,90 @@ function app_valid_datetime_local(string $datetime): ?string
         return null;
     }
     return $parsed->format('Y-m-d H:i:s');
+}
+
+/** Jam yang dipakai untuk pengingat tanpa jam (sepanjang hari). */
+function app_default_reminder_time(): string
+{
+    return '09:00';
+}
+
+/** Memvalidasi jam `HH:MM` (detik opsional, seperti kiriman input `datetime-local`). */
+function app_valid_time(string $time): ?string
+{
+    $normalized = trim($time);
+    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)(?::(?:[0-5]\d))?$/', $normalized, $match)) {
+        return null;
+    }
+    return $match[1] . ':' . $match[2];
+}
+
+/**
+ * Menentukan waktu pengingat dari input.
+ *
+ * Format baru: `reminder_date` (wajib) + `reminder_time` (opsional). Kalau jamnya
+ * dikosongkan, pengingat dianggap "sepanjang hari" dan dikirim pada jam default.
+ * Format lama `reminder_at` (`YYYY-MM-DDTHH:MM`) tetap diterima untuk importer.
+ *
+ * @return array{at: string, has_time: int}|null null bila tanggal/jam tidak valid
+ */
+function app_resolve_reminder_when(array $input): ?array
+{
+    $date = trim((string) ($input['reminder_date'] ?? ''));
+    if ($date !== '') {
+        if (!app_valid_date($date)) {
+            return null;
+        }
+        $time = trim((string) ($input['reminder_time'] ?? ''));
+        if ($time === '') {
+            return ['at' => $date . ' ' . app_default_reminder_time() . ':00', 'has_time' => 0];
+        }
+        $validTime = app_valid_time($time);
+        if ($validTime === null) {
+            return null;
+        }
+        return ['at' => $date . ' ' . $validTime . ':00', 'has_time' => 1];
+    }
+
+    $combined = app_valid_datetime_local((string) ($input['reminder_at'] ?? ''));
+    if ($combined === null) {
+        return null;
+    }
+    $hasTime = array_key_exists('has_time', $input) ? (int) $input['has_time'] : 1;
+    return ['at' => $combined, 'has_time' => $hasTime === 0 ? 0 : 1];
+}
+
+/**
+ * Menulis waktu pengingat untuk pesan Telegram: dengan jam bila penggunanya
+ * mengisi jam, atau keterangan "sepanjang hari" bila jamnya dilewati.
+ */
+function app_reminder_when_text(string $reminderAt, int $hasTime = 1): string
+{
+    $timestamp = strtotime($reminderAt);
+    if ($timestamp === false) {
+        return $reminderAt;
+    }
+    return $hasTime === 1
+        ? date('d M Y, H.i', $timestamp) . ' WIB'
+        : date('d M Y', $timestamp) . ' (sepanjang hari · kabar dikirim sekitar ' . app_default_reminder_time() . ' WIB)';
+}
+
+/**
+ * Menyusun isi pesan Telegram untuk satu pengingat.
+ * Dipakai saat pengingat dibuat, dikirim manual, dan oleh cron saat jatuh tempo,
+ * supaya bentuk kabarnya sama di mana pun.
+ *
+ * @param array $reminder baris pengingat (title, category, reminder_at, has_time, note, created_by_name)
+ */
+function app_reminder_message(array $reminder, string $heading = '🔔 Pengingat rumah'): string
+{
+    $title = (string) ($reminder['title'] ?? '');
+    $category = (string) ($reminder['category'] ?? 'Lainnya');
+    $when = app_reminder_when_text((string) ($reminder['reminder_at'] ?? ''), (int) ($reminder['has_time'] ?? 1));
+    $author = (string) ($reminder['created_by_name'] ?? '') !== '' ? (string) $reminder['created_by_name'] : 'Anggota rumah';
+    $note = trim((string) ($reminder['note'] ?? ''));
+    return $heading . "\n\n" . $title . "\n" . $when . "\nKategori: " . $category . "\nDibuat oleh: " . $author
+        . ($note !== '' ? "\n\nCatatan: " . $note : '');
 }
 
 /* ------------------------------------------------------------------ *
