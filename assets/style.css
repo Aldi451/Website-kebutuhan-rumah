@@ -597,6 +597,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .modal-body { padding: 18px 18px calc(20px + env(safe-area-inset-bottom)); }
   .modal-footer { position: sticky; bottom: 0; padding: 9px 0 0; background: white; }
 }
+/* Pengaturan penerima notifikasi — batas device & pilihan user */
+.settings-notify .notify-preview-chip { display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#e8f5f1;color:#2a5a4a;font-size:10px;font-weight:600;border:1px solid #d0e8e1; }
+.notify-user-list { display:grid;gap:8px;padding:10px;border:1px solid #e9eeee;border-radius:11px;background:#fbfcfc;max-height:260px;overflow:auto; }
+.notify-user-row { display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:#fff;border:1px solid #eef2f2;cursor:pointer;transition:border-color .14s; }
+.notify-user-row:hover { border-color:#bcded4; }
+.notify-user-row input[type=checkbox] { width:15px;height:15px;flex:0 0 auto;accent-color:var(--brand); }
+.notify-user-meta { display:grid;gap:2px;flex:1;min-width:0; }
+.notify-user-meta strong { color:#344a52;font-size:11px;font-weight:700; }
+.notify-user-meta small { color:#8a9a9e;font-size:9px; }
+.notify-types { display:grid;gap:8px;padding:10px;border:1px solid #e9eeee;border-radius:11px;background:#fbfcfc; }
+.notify-check { display:flex;align-items:center;gap:8px;color:#4a5e64;font-size:11px;font-weight:600;cursor:pointer; }
+.notify-check input[type=checkbox] { width:15px;height:15px;accent-color:var(--brand); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

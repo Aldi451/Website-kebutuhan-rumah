@@ -122,6 +122,7 @@ function app_schema_statements(bool $mysql): array
         display_name VARCHAR(80) NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(16) NOT NULL DEFAULT 'member',
+        phone VARCHAR(60) NOT NULL DEFAULT '',
         created_at DATETIME NOT NULL
     ){$engine}";
 
@@ -244,6 +245,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
     app_ensure_column($pdo, $mysql, 'reminders', 'completed_at', 'DATETIME NULL');
     app_ensure_column($pdo, $mysql, 'reminders', 'due_notified_at', 'DATETIME NULL');
     app_ensure_column($pdo, $mysql, 'reminders', 'has_time', $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1');
+    app_ensure_column($pdo, $mysql, 'users', 'phone', \"VARCHAR(60) NOT NULL DEFAULT ''\");
 
     $adminCount = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
     if ($adminCount === 0) {
@@ -263,7 +265,7 @@ function app_user(): ?array
     if (empty($_SESSION['user_id'])) {
         return null;
     }
-    $query = app_db()->prepare('SELECT id, username, display_name, role, created_at FROM users WHERE id = :id LIMIT 1');
+    $query = app_db()->prepare('SELECT id, username, display_name, role, phone, created_at FROM users WHERE id = :id LIMIT 1');
     $query->execute([':id' => (int) $_SESSION['user_id']]);
     $user = $query->fetch();
     if (!$user) {
@@ -1036,6 +1038,178 @@ function app_stream_sql_dump(PDO $pdo): void
     }
 
     echo "SET FOREIGN_KEY_CHECKS = 1;\n";
+}
+
+/* ------------------------------------------------------------------ *
+ * Pengaturan penerima notifikasi (Fonnte) — batas device & pilihan user
+ * ------------------------------------------------------------------ */
+
+function app_wa_notify_max_devices_default(): int { return 5; }
+
+function app_wa_notify_settings(): array
+{
+    $max = (int) app_setting('wa_notify_max_devices', (string) app_wa_notify_max_devices_default());
+    if ($max < 1) $max = 1;
+    if ($max > 20) $max = 20;
+
+    $rawTargets = app_setting('wa_notify_targets', '[]');
+    $targets = json_decode((string) $rawTargets, true);
+    if (!is_array($targets)) $targets = [];
+    $normalized = [];
+    foreach ($targets as $item) {
+        $phone = app_normalize_whatsapp_target(trim((string) $item));
+        if ($phone !== null && !in_array($phone, $normalized, true)) $normalized[] = $phone;
+    }
+
+    $rawUserIds = app_setting('wa_notify_user_ids', '[]');
+    $userIds = json_decode((string) $rawUserIds, true);
+    if (!is_array($userIds)) $userIds = [];
+    $cleanIds = [];
+    foreach ($userIds as $uid) {
+        $id = filter_var($uid, FILTER_VALIDATE_INT);
+        if ($id && $id > 0) $cleanIds[] = (int) $id;
+    }
+    $cleanIds = array_values(array_unique($cleanIds));
+
+    $notifyTypesRaw = app_setting('wa_notify_types', 'reminders,finance');
+    $types = array_filter(array_map('trim', explode(',', (string) $notifyTypesRaw)));
+    if ($types === []) $types = ['reminders', 'finance'];
+    $allowedTypes = ['reminders', 'finance', 'monthly_report'];
+    $types = array_values(array_intersect($types, $allowedTypes));
+    if ($types === []) $types = ['reminders'];
+
+    return [
+        'max_devices' => $max,
+        'targets' => $normalized,
+        'user_ids' => $cleanIds,
+        'types' => $types,
+    ];
+}
+
+function app_wa_notify_targets(): array
+{
+    $creds = app_whatsapp_credentials();
+    $primary = $creds['target'] !== '' ? app_normalize_whatsapp_target($creds['target']) : null;
+    $settings = app_wa_notify_settings();
+    $all = [];
+
+    if ($primary !== null) $all[] = $primary;
+    foreach ($settings['targets'] as $t) {
+        if (!in_array($t, $all, true)) $all[] = $t;
+    }
+    // Tambahkan nomor HP dari user yang dipilih (jika user punya phone)
+    if ($settings['user_ids'] !== []) {
+        try {
+            $pdo = app_db();
+            $placeholders = implode(',', array_fill(0, count($settings['user_ids']), '?'));
+            $query = $pdo->prepare("SELECT id, phone FROM users WHERE id IN ({$placeholders})");
+            $query->execute($settings['user_ids']);
+            foreach ($query->fetchAll() as $row) {
+                $phone = app_normalize_whatsapp_target(trim((string) ($row['phone'] ?? '')));
+                if ($phone !== null && !in_array($phone, $all, true)) $all[] = $phone;
+            }
+        } catch (Throwable $e) { /* abaikan jika kolom belum ada */ }
+    }
+    // Batasi sesuai max_devices
+    if (count($all) > $settings['max_devices']) {
+        $all = array_slice($all, 0, $settings['max_devices']);
+    }
+    return $all;
+}
+
+function app_wa_notify_save_settings(array $input): array
+{
+    $max = filter_var($input['max_devices'] ?? null, FILTER_VALIDATE_INT);
+    if ($max === false || $max < 1 || $max > 20) {
+        return ['ok' => false, 'message' => 'Batas perangkat harus angka 1–20.'];
+    }
+    $targetsInput = $input['targets'] ?? [];
+    if (is_string($targetsInput)) {
+        $targetsInput = preg_split('/[\\s,;\\n]+/', $targetsInput) ?: [];
+    }
+    if (!is_array($targetsInput)) $targetsInput = [];
+    $normalizedTargets = [];
+    foreach ($targetsInput as $raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') continue;
+        $phone = app_normalize_whatsapp_target($raw);
+        if ($phone === null) {
+            return ['ok' => false, 'message' => 'Nomor tujuan tidak valid: ' . $raw . '. Contoh: 08123456789 atau 628123456789, atau ID grup berakhiran @g.us'];
+        }
+        if (!in_array($phone, $normalizedTargets, true)) $normalizedTargets[] = $phone;
+    }
+    if (count($normalizedTargets) > $max) {
+        return ['ok' => false, 'message' => 'Jumlah nomor tujuan (' . count($normalizedTargets) . ') melebihi batas perangkat (' . $max . '). Kurangi nomor atau naikkan batas.'];
+    }
+    $userIdsInput = $input['user_ids'] ?? [];
+    if (!is_array($userIdsInput)) $userIdsInput = [];
+    $cleanUserIds = [];
+    foreach ($userIdsInput as $uid) {
+        $id = filter_var($uid, FILTER_VALIDATE_INT);
+        if ($id && $id > 0) $cleanUserIds[] = (int) $id;
+    }
+    $cleanUserIds = array_values(array_unique($cleanUserIds));
+    // Validasi user ada
+    if ($cleanUserIds !== []) {
+        $pdo = app_db();
+        $placeholders = implode(',', array_fill(0, count($cleanUserIds), '?'));
+        $query = $pdo->prepare("SELECT id FROM users WHERE id IN ({$placeholders})");
+        $query->execute($cleanUserIds);
+        $found = array_map(fn($r) => (int) $r['id'], $query->fetchAll());
+        $missing = array_diff($cleanUserIds, $found);
+        if ($missing !== []) {
+            return ['ok' => false, 'message' => 'Beberapa user tidak ditemukan: ' . implode(', ', $missing)];
+        }
+        // Cek apakah user terpilih sudah punya nomor HP (peringatan tapi tetap simpan)
+    }
+    $typesInput = $input['types'] ?? ['reminders'];
+    if (!is_array($typesInput)) $typesInput = [$typesInput];
+    $allowedTypes = ['reminders', 'finance', 'monthly_report'];
+    $types = array_values(array_intersect(array_map('strval', $typesInput), $allowedTypes));
+    if ($types === []) $types = ['reminders'];
+
+    // Simpan
+    app_set_setting('wa_notify_max_devices', (string) $max);
+    app_set_setting('wa_notify_targets', json_encode($normalizedTargets, JSON_UNESCAPED_UNICODE));
+    app_set_setting('wa_notify_user_ids', json_encode($cleanUserIds, JSON_UNESCAPED_UNICODE));
+    app_set_setting('wa_notify_types', implode(',', $types));
+
+    return ['ok' => true, 'message' => 'Pengaturan penerima notifikasi disimpan. Maksimal ' . $max . ' perangkat, ' . count($normalizedTargets) . ' nomor tambahan + ' . count($cleanUserIds) . ' user terpilih.'];
+}
+
+function app_wa_send_to_targets(string $text, array $targets, ?string $token = null): array
+{
+    if ($targets === []) {
+        // Fallback ke pengiriman single-target standar
+        return app_send_whatsapp($text, null, $token);
+    }
+    $results = [];
+    $sent = 0; $failed = 0;
+    $descriptions = [];
+    foreach ($targets as $target) {
+        $res = app_send_whatsapp($text, $target, $token);
+        $results[] = ['target' => $target, 'ok' => (bool) ($res['ok'] ?? false), 'description' => (string) ($res['description'] ?? '')];
+        if ($res['ok'] ?? false) $sent++; else { $failed++; $descriptions[] = $target . ': ' . (string) ($res['description'] ?? 'gagal'); }
+    }
+    $overallOk = $sent > 0;
+    return [
+        'ok' => $overallOk,
+        'sent' => $sent,
+        'failed' => $failed,
+        'results' => $results,
+        'description' => $overallOk
+            ? ($failed === 0 ? 'Notifikasi terkirim ke ' . $sent . ' perangkat.' : 'Terkirim ke ' . $sent . ' perangkat, ' . $failed . ' gagal: ' . implode('; ', array_slice($descriptions, 0, 2)))
+            : 'Semua pengiriman gagal: ' . implode('; ', array_slice($descriptions, 0, 2)),
+    ];
+}
+
+function app_send_whatsapp_broadcast(string $text, ?string $token = null): array
+{
+    $targets = app_wa_notify_targets();
+    if ($targets === []) {
+        return app_send_whatsapp($text, null, $token);
+    }
+    return app_wa_send_to_targets($text, $targets, $token);
 }
 
 function app_name_initials(string $name): string
