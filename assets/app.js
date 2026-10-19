@@ -1436,9 +1436,12 @@
 
   function membersMarkup() {
     const members = state.members?.users || [];
-    const rows = members.map((user) => `<tr><td><span class="member-cell"><span class="avatar${user.role === 'admin' ? ' avatar-lime' : ''}">${escapeHtml(initials(user.name))}</span><span><span class="table-title">${escapeHtml(user.name)}</span><span class="table-subtitle">@${escapeHtml(user.username)}</span></span></span></td><td><span class="role-pill${user.role === 'admin' ? ' admin' : ''}">${user.role === 'admin' ? 'Admin' : 'Anggota'}</span></td><td class="table-date">${escapeHtml(dateLabel(String(user.created_at || '').slice(0, 10), { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td>${user.role === 'member' ? `<button class="btn btn-secondary btn-small" type="button" data-action="reset-member-password" data-id="${Number(user.id)}" data-name="${escapeHtml(user.name)}">Atur ulang sandi</button>` : '<span class="text-muted" style="font-size:9px">Akun utama</span>'}</td></tr>`).join('');
+    const rows = members.map((user) => {
+      const phone = user.phone ? escapeHtml(user.phone) : '<span class="text-muted">— belum ada HP</span>';
+      return `<tr><td><span class="member-cell"><span class="avatar${user.role === 'admin' ? ' avatar-lime' : ''}">${escapeHtml(initials(user.name))}</span><span><span class="table-title">${escapeHtml(user.name)}</span><span class="table-subtitle">@${escapeHtml(user.username)}</span></span></span></td><td><span class="role-pill${user.role === 'admin' ? ' admin' : ''}">${user.role === 'admin' ? 'Admin' : 'Anggota'}</span></td><td>${phone}</td><td class="table-date">${escapeHtml(dateLabel(String(user.created_at || '').slice(0, 10), { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap">${user.role === 'member' ? `<button class="btn btn-secondary btn-small" type="button" data-action="reset-member-password" data-id="${Number(user.id)}" data-name="${escapeHtml(user.name)}">Atur ulang sandi</button>` : '<span class="text-muted" style="font-size:9px">Akun utama</span>'}<button class="btn btn-secondary btn-small" type="button" data-action="edit-member-phone" data-id="${Number(user.id)}" data-name="${escapeHtml(user.name)}" data-phone="${escapeHtml(user.phone || '')}">${icon('edit')} HP</button></div></td></tr>`;
+    }).join('');
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> akses keluarga</span><h1>Anggota rumah</h1><p>Kelola siapa saja yang bisa mencatat keuangan dan agenda bersama.</p></div><div class="heading-actions"><button class="btn" type="button" data-action="open-user">${icon('plus')} Tambah anggota</button></div></div>
-      <div class="grid members-grid"><article class="card list-card"><div class="card-head" style="padding-bottom:14px"><div><h2 class="card-title">Akun yang terdaftar</h2><p class="card-subtitle">${members.length} akun · catatan dibagikan bersama</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Nama pengguna</th><th>Peran</th><th>Bergabung</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></article><aside class="card members-note"><span class="target-glyph">${icon('shield')}</span><h3>Data satu rumah</h3><p>Anggota yang kamu tambahkan akan berbagi daftar transaksi, target pengeluaran, dan pengingat yang sama. Setiap catatan tetap menampilkan siapa yang membuatnya.</p><button class="btn-link" type="button" data-page="settings" style="margin-top:13px">Buka pengaturan keamanan ${icon('arrowRight')}</button></aside></div>`;
+      <div class="grid members-grid"><article class="card list-card"><div class="card-head" style="padding-bottom:14px"><div><h2 class="card-title">Akun yang terdaftar</h2><p class="card-subtitle">${members.length} akun · catatan dibagikan bersama</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Nama pengguna</th><th>Peran</th><th>HP / WhatsApp</th><th>Bergabung</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">Belum ada anggota.</td></tr>'}</tbody></table></div></article><aside class="card members-note"><span class="target-glyph">${icon('shield')}</span><h3>Data satu rumah</h3><p>Anggota yang kamu tambahkan akan berbagi daftar transaksi, target pengeluaran, dan pengingat yang sama. Setiap catatan tetap menampilkan siapa yang membuatnya.</p><p style="margin-top:10px;color:#8a9ba0;font-size:10px">Tambahkan nomor HP di setiap anggota agar bisa dipilih sebagai penerima notifikasi WhatsApp di menu Pengaturan.</p><button class="btn-link" type="button" data-page="settings" style="margin-top:13px">Buka pengaturan notifikasi ${icon('arrowRight')}</button></aside></div>`;
   }
 
   function settingsMarkup() {
@@ -1460,6 +1463,42 @@
     const whatsappPanel = isAdmin ? `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi WhatsApp (Fonnte)</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${whatsapp.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${whatsapp.connected ? `Perangkat tersambung${whatsapp.target ? ` · ${escapeHtml(whatsapp.target)}` : ''}${whatsapp.token_hint ? ` · token ${escapeHtml(whatsapp.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="whatsapp-save" class="form-grid"><div class="field full-span"><label for="wa-token">Token perangkat Fonnte</label><input class="input" id="wa-token" name="token" type="password" autocomplete="off" placeholder="${whatsapp.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Salin dari menu Device di dashboard Fonnte'}"></div><div class="field full-span"><label for="wa-target">Nomor WhatsApp tujuan</label><input class="input" id="wa-target" name="target" type="text" inputmode="tel" value="${escapeHtml(whatsapp.target || '')}" placeholder="Contoh: 08123456789 atau 6281234567890-123@g.us (grup)"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser. Nomor tujuan boleh nomor pribadi atau ID grup WhatsApp.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${whatsapp.connected ? `<button class="btn btn-secondary" type="button" data-action="whatsapp-test">${icon('send')} Tes kirim WhatsApp</button><button class="btn btn-secondary" type="button" data-action="reminder-test">${icon('bell')} Tes kirim pengingat</button><button class="btn btn-danger" type="button" data-action="whatsapp-disconnect">Lepas koneksi</button>` : ''}<button class="btn btn-secondary" type="button" data-action="whatsapp-device">Cek perangkat</button></div></div></form><ol class="steps-list"><li>Daftar atau masuk ke <strong>fonnte.com</strong>, buat perangkat (device), lalu sambungkan WhatsApp lewat scan QR di dashboard Fonnte.</li><li>Pastikan perangkat berstatus <strong>connect</strong>, lalu salin <strong>token perangkat</strong> dari menu Device.</li><li>Tempel token dan nomor WhatsApp tujuan di atas, lalu pilih <strong>Simpan & hubungkan</strong>. Aplikasi memeriksa perangkat dan mengirim pesan percobaan.</li><li>Uji bentuk kabarnya dengan <strong>Tes kirim pengingat</strong>. Untuk pengingat tertentu, pakai ikon kirim pada daftar <strong>Pengingat</strong> supaya langsung diteruskan ke WhatsApp.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar otomatis saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README. Kalau hosting belum menyediakan cron, kirim manual dari daftar pengingat. Setiap pesan memakai kuota Fonnte.</div></section>` : `
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi WhatsApp (Fonnte)</h2><p class="settings-description">Status koneksi pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${whatsapp.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${whatsapp.connected ? 'Notifikasi WhatsApp rumah sudah tersambung.' : 'Notifikasi WhatsApp belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan WhatsApp dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p><p class="settings-description" style="margin-top:7px">Fitur tanya laporan lewat WhatsApp hanya tersedia untuk nomor yang didaftarkan admin di menu <strong>Bot WhatsApp</strong>.</p></section>`;
+    const notify = state.settings?.whatsapp_notify || { max_devices: 5, targets: [], user_ids: [], types: ['reminders'] };
+    const notifyTargetsPreview = state.settings?.whatsapp_notify_targets || [];
+    const houseUsers = state.settings?.house_users || [];
+    const notifyPanel = !isAdmin ? '' : (() => {
+      const maxDevices = Number(notify.max_devices || 5);
+      const targetsList = (notify.targets || []).join('\n');
+      const userIds = notify.user_ids || [];
+      const types = notify.types || ['reminders'];
+      const isType = (t) => types.includes(t);
+      const preview = notifyTargetsPreview.length
+        ? notifyTargetsPreview.map((p) => `<span class="notify-preview-chip">`+escapeHtml(p)+`</span>`).join(' ')
+        : '<span class="text-muted" style="font-size:10px">Belum ada penerima — atur di bawah.</span>';
+      const mainTargetNote = whatsapp.target ? `Nomor utama: <code>`+escapeHtml(whatsapp.target)+`</code> selalu ikut (jika terhubung).` : 'Nomor utama belum diatur — isi dulu di panel Fonnte di atas.';
+      const userRows = houseUsers.map((u) => {
+        const hasPhone = u.phone && u.phone_normalized;
+        const checked = userIds.includes(Number(u.id)) ? ' checked' : '';
+        return `<label class="notify-user-row"><input type="checkbox" name="notify_user_ids" value="`+Number(u.id)+`"`+checked+` `+(hasPhone ? '' : ' disabled')+`><span class="notify-user-meta"><strong>`+escapeHtml(u.name)+`</strong><small>@`+escapeHtml(u.username)+` · `+(hasPhone ? escapeHtml(u.phone) : '<em style="color:#b07d5a">belum ada HP — atur di menu Anggota</em>')+`</small></span>`+(hasPhone ? `<span class="role-pill">`+escapeHtml(u.phone_normalized)+`</span>` : '')+`</label>`;
+      }).join('') || '<p class="text-muted" style="font-size:10px">Belum ada anggota rumah.</p>';
+      return `
+        <section class="card settings-card settings-notify" style="grid-column:1/-1"><div class="card-head"><div><h2 class="card-title">Penerima notifikasi &amp; batas perangkat</h2><p class="settings-description">Atur berapa device yang boleh dapat notif keuangan &amp; pengingat, dan pilih siapa saja penerimanya.</p></div><span class="target-glyph">`+icon('users')+`</span></div>
+          <div class="connection-banner`+(whatsapp.connected ? '' : ' disconnected')+`"><i class="connection-led"></i><span>`+(whatsapp.connected ? `Siap kirim ke `+notifyTargetsPreview.length+` perangkat (maks `+maxDevices+`)` : 'Hubungkan Fonnte dulu untuk mengirim notifikasi')+` · `+mainTargetNote+`</span></div>
+          <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:10px;color:#6b7d7f">Pratinjau penerima aktif:</span> `+preview+`</div>
+          <form data-form="whatsapp-notify-save" class="form-grid" style="margin-top:16px">
+            <div class="field"><label for="notify-max-devices">Batas maksimal perangkat penerima</label><input class="input" id="notify-max-devices" name="max_devices" type="number" min="1" max="20" value="`+maxDevices+`" required><p class="form-note">1–20 perangkat. Termasuk nomor utama + nomor tambahan + HP anggota terpilih. Jika melebihi batas, yang terdepan yang dipakai.</p></div>
+            <div class="field"><label>Jenis notifikasi yang dikirim</label><div class="notify-types">
+              <label class="notify-check"><input type="checkbox" name="notify_types" value="reminders" `+(isType('reminders') ? 'checked' : '')+`> Pengingat (jatuh tempo &amp; manual)</label>
+              <label class="notify-check"><input type="checkbox" name="notify_types" value="finance" `+(isType('finance') ? 'checked' : '')+`> Keuangan (transaksi baru)</label>
+              <label class="notify-check"><input type="checkbox" name="notify_types" value="monthly_report" `+(isType('monthly_report') ? 'checked' : '')+`> Laporan bulanan otomatis</label>
+            </div><p class="form-note">Hapus centang untuk mematikan jenis notifikasi tertentu.</p></div>
+            <div class="field full-span"><label>Pilih anggota rumah yang menerima notifikasi</label><div class="notify-user-list">`+userRows+`</div><p class="form-note">Hanya anggota dengan nomor HP yang bisa dipilih. Atur HP anggota di menu <strong>Anggota rumah</strong> → tombol HP.</p></div>
+            <div class="field full-span"><label for="notify-targets">Nomor tujuan tambahan</label><textarea class="textarea" id="notify-targets" name="targets" rows="3" placeholder="08123456789&#10;628987654321&#10;120363028xxx@g.us (ID grup)">`+escapeHtml(targetsList)+`</textarea><p class="form-note">Satu nomor per baris. Bisa nomor pribadi (08…/62…) atau ID grup WhatsApp (…@g.us). Nomor utama di atas sudah otomatis ikut, tidak perlu ditulis ulang.</p></div>
+            <div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">`+icon('check')+` Simpan pengaturan penerima</button><button class="btn btn-secondary" type="button" data-action="notify-test">`+icon('send')+` Tes kirim ke semua penerima</button></div></div>
+          </form>
+          <div class="security-tip"><strong>Cara cek:</strong> setelah simpan, coba <em>Tes kirim ke semua penerima</em> — semua nomor terpilih akan mendapat pesan uji. Untuk pengingat spesifik gunakan tombol <em>kirim</em> di daftar Pengingat. Kuota Fonnte dihitung per perangkat penerima.</div>
+        </section>`;
+    })();
     const whatsappBot = state.settings?.whatsapp_bot || null;
     const botContacts = whatsappBot?.contacts || [];
     const botMonthly = whatsappBot?.monthly || { enabled: false, day: 'last', time: '20:00', last_key: '', last_label: '', last_at: '' };
@@ -1485,6 +1524,7 @@
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Keamanan akun</h2><p class="settings-description">Sedang masuk sebagai <strong>${escapeHtml(state.user?.name)}</strong> (@${escapeHtml(state.user?.username)}).</p></div><span class="target-glyph">${icon('lock')}</span></div><form data-form="password-change" class="form-grid"><div class="field full-span"><label for="current-password">Kata sandi saat ini</label><input class="input" id="current-password" name="current_password" type="password" autocomplete="current-password" required></div><div class="field full-span"><label for="new-password">Kata sandi baru</label><input class="input" id="new-password" name="new_password" type="password" minlength="8" autocomplete="new-password" placeholder="Minimal 8 karakter" required></div><div class="field full-span"><label for="confirm-password">Ulangi kata sandi baru</label><input class="input" id="confirm-password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></div><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn btn-soft" type="submit">${icon('shield')} Ganti kata sandi</button></div></form><div class="security-tip"><strong>Saran:</strong> gunakan kata sandi unik dan jangan membagikan akun admin. Kata sandi disimpan dalam bentuk hash.</div></section>
         ${whatsappPanel}
+        ${notifyPanel}
         ${botPanel}
         ${backupPanel}
       </div>`;
@@ -1566,7 +1606,12 @@
         <div class="field"><label for="new-user-name">Nama tampilan</label><input class="input" id="new-user-name" name="name" maxlength="80" placeholder="Contoh: Budi" required></div>
         <div class="field"><label for="new-user-username">Username</label><input class="input" id="new-user-username" name="username" maxlength="32" pattern="[A-Za-z0-9._-]{3,32}" autocapitalize="none" placeholder="budi.rumah" required></div>
         <div class="field full-span"><label for="new-user-password">Kata sandi awal</label><input class="input" id="new-user-password" name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Minimal 8 karakter" required></div>
-      </div><p class="form-note">Akun baru langsung bisa melihat dan menambahkan catatan bersama. Berikan kata sandi awal secara pribadi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('plus')} Buat akun</button></div></form>`);
+        <div class="field full-span"><label for="new-user-phone">Nomor HP / WhatsApp <span class="text-muted" style="font-weight:400">(opsional, untuk notifikasi)</span></label><input class="input" id="new-user-phone" name="phone" type="tel" placeholder="08123456789"></div>
+      </div><p class="form-note">Akun baru langsung bisa melihat dan menambahkan catatan bersama. Isi nomor HP agar bisa dipilih sebagai penerima notifikasi di Pengaturan. Berikan kata sandi awal secara pribadi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('plus')} Buat akun</button></div></form>`);
+  }
+  function openEditPhoneModal(id, name, phone) {
+    openModal('Atur nomor HP', `Nomor WhatsApp untuk `+escapeHtml(name)+` — akan dipakai sebagai penerima notifikasi.`, `
+      <form class="modal-body" data-form="user-phone-save"><input type="hidden" name="id" value="`+Number(id)+`"><div class="field"><label for="edit-phone">Nomor HP / WhatsApp</label><input class="input" id="edit-phone" name="phone" type="tel" value="`+escapeHtml(phone || '')+`" placeholder="08123456789"><p class="form-note">Kosongkan untuk menghapus nomor HP. Format: 0812…, 62812…, atau ID grup …@g.us</p></div><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">Simpan nomor</button></div></form>`);
   }
 
   function openResetPasswordModal(id, name) {
@@ -1765,6 +1810,17 @@
         state.settings = null;
         await refreshPage(true);
       } catch (error) { showToast(error.message, 'error'); }
+    } else if (action === 'notify-test') {
+      actionButton.disabled = true;
+      const prev = actionButton.textContent;
+      actionButton.textContent = 'Mengirim…';
+      try {
+        const result = await api('whatsapp/notify/test', {});
+        showToast(result.message + (result.sent ? ` (`+result.sent+` terkirim)` : ''));
+      } catch (error) { showToast(error.message, 'error'); }
+      finally { actionButton.disabled = false; actionButton.textContent = prev; }
+    } else if (action === 'edit-member-phone') {
+      openEditPhoneModal(actionButton.dataset.id, actionButton.dataset.name || 'anggota', actionButton.dataset.phone || '');
     }
   });
 
@@ -1890,6 +1946,25 @@
       } else if (kind === 'wa-report-send') {
         const result = await api('whatsapp/report/send', { month: data.month });
         showToast(result.message);
+      } else if (kind === 'whatsapp-notify-save') {
+        // Kumpulkan checkbox user_ids dan types
+        const formEl = form;
+        const max_devices = Number(formEl.querySelector('[name="max_devices"]')?.value || 5);
+        const targetsRaw = formEl.querySelector('[name="targets"]')?.value || '';
+        const targets = targetsRaw.split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);
+        const user_ids = Array.from(formEl.querySelectorAll('[name="notify_user_ids"]:checked')).map(el=>Number(el.value));
+        const types = Array.from(formEl.querySelectorAll('[name="notify_types"]:checked')).map(el=>el.value);
+        const result = await api('whatsapp/notify/save', { max_devices, targets, user_ids, types });
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
+      } else if (kind === 'user-phone-save') {
+        const result = await api('users/phone/save', { id: Number(data.id), phone: data.phone || '' });
+        closeModal();
+        showToast(result.message);
+        state.members = null;
+        state.settings = null;
+        await refreshPage(true);
       }
     } catch (error) {
       showFormError(form, error.message);

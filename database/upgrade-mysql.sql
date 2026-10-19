@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS wa_contacts (
     created_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 5. Nomor HP anggota untuk penerima notifikasi multi-device -----------
+ALTER TABLE users ADD COLUMN phone VARCHAR(60) NOT NULL DEFAULT '';
+
+-- 6. Pengaturan penerima notifikasi disimpan di app_settings sebagai JSON
+--    (wa_notify_max_devices, wa_notify_targets, wa_notify_user_ids, wa_notify_types)
+--    Tidak perlu tabel baru — aplikasi membuatnya otomatis saat menyimpan.
+
 -- Selesai. Cek di phpMyAdmin: tabel "attachments" harus muncul bersama
 -- tabel transactions, reminders, monthly_targets, app_settings, users,
 -- dan wa_contacts (nomor bot WhatsApp).

@@ -28,12 +28,13 @@ try {
     $failed = 0;
     foreach ($reminders as $reminder) {
         // Bentuk pesannya sama dengan kabar yang dikirim saat pengingat dibuat/dikirim manual.
+        // Sekarang dikirim ke semua penerima yang dipilih di Pengaturan → Notifikasi (multi-device).
         $message = app_reminder_message($reminder, '⏰ Pengingat rumah • waktunya dicek');
-        $result = app_send_whatsapp($message);
+        $result = app_send_whatsapp_broadcast($message);
         if ($result['ok'] ?? false) {
             $update = $pdo->prepare('UPDATE reminders SET due_notified_at = :notified WHERE id = :id AND due_notified_at IS NULL');
             $update->execute([':notified' => $now, ':id' => (int) $reminder['id']]);
-            $sent++;
+            $sent += (int) ($result['sent'] ?? 1);
         } else {
             $failed++;
         }

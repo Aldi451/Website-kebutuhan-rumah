@@ -519,6 +519,17 @@ try {
             }
             throw $error;
         }
+        // Kirim notifikasi keuangan jika diaktifkan di pengaturan
+        $notifyTypes = app_wa_notify_settings()['types'] ?? ['reminders'];
+        if (in_array('finance', $notifyTypes, true) && $kind) {
+            $financeMsg = '💰 Transaksi baru • ' . ($kind === 'income' ? 'Uang masuk' : 'Uang keluar') . "\n"
+                . $title . ' • ' . app_format_amount($amount) . "\n"
+                . 'Kategori: ' . $category . ' • ' . $date . "\n"
+                . 'Oleh: ' . $user['display_name']
+                . ($note !== '' ? "\nCatatan: " . $note : '')
+                . ($receipt !== null ? "\nBukti gambar tersimpan di website." : '');
+            try { app_send_whatsapp_broadcast($financeMsg); } catch (Throwable $e) { /* jangan gagalkan transaksi */ }
+        }
         app_json([
             'ok' => true,
             'message' => $receipt === null
@@ -706,16 +717,23 @@ try {
             }
             throw $error;
         }
-        $whatsapp = app_send_whatsapp(app_reminder_message([
+        $whatsapp = app_send_whatsapp_broadcast(app_reminder_message([
             'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
             'note' => $note, 'created_by_name' => $user['display_name'],
         ]) . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
+        // Hormati pengaturan jenis notifikasi
+        $notifyTypes = app_wa_notify_settings()['types'] ?? ['reminders'];
+        if (!in_array('reminders', $notifyTypes, true)) {
+            $whatsapp = ['ok' => true, 'description' => 'Notifikasi pengingat dimatikan di pengaturan.'];
+        }
         app_json([
             'ok' => true,
             'message' => trim(($receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.')
-                . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')),
+                . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')
+                . (($whatsapp['ok'] ?? false) ? ' (' . (string) ($whatsapp['description'] ?? '') . ')' : '')),
             'whatsapp_sent' => (bool) ($whatsapp['ok'] ?? false),
             'whatsapp_message' => (string) ($whatsapp['description'] ?? ''),
+            'whatsapp_sent_count' => (int) ($whatsapp['sent'] ?? 0),
             'has_receipt' => $receipt !== null,
             'has_time' => $hasTime,
         ]);
@@ -867,7 +885,7 @@ try {
         if (!$reminder) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
         }
-        $result = app_send_whatsapp(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
+        $result = app_send_whatsapp_broadcast(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -896,11 +914,12 @@ try {
             'note' => 'Ini pesan uji coba dari menu Pengaturan. Pengingat sungguhan dikirim otomatis saat waktunya tiba.',
             'created_by_name' => (string) $user['display_name'],
         ];
-        $result = app_send_whatsapp(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
+        $result = app_send_whatsapp_broadcast(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
-        app_json(['ok' => true, 'message' => 'Contoh pesan pengingat berhasil dikirim ke WhatsApp.']);
+        $sent = (int) ($result['sent'] ?? 1);
+        app_json(['ok' => true, 'message' => 'Contoh pesan pengingat berhasil dikirim ke ' . $sent . ' perangkat WhatsApp.']);
     }
 
     // Menambah atau mengganti bukti gambar pada transaksi/pengingat yang sudah ada.
@@ -988,9 +1007,9 @@ try {
 
     if ($action === 'users/list' && $method === 'GET') {
         app_require_admin($user);
-        $query = $pdo->query('SELECT id, username, display_name, role, created_at FROM users ORDER BY CASE WHEN role = \'admin\' THEN 0 ELSE 1 END, display_name ASC');
+        $query = $pdo->query('SELECT id, username, display_name, role, phone, created_at FROM users ORDER BY CASE WHEN role = \'admin\' THEN 0 ELSE 1 END, display_name ASC');
         app_json(['ok' => true, 'users' => array_map(static function (array $row): array {
-            return ['id' => (int) $row['id'], 'username' => $row['username'], 'name' => $row['display_name'], 'role' => $row['role'], 'created_at' => $row['created_at']];
+            return ['id' => (int) $row['id'], 'username' => $row['username'], 'name' => $row['display_name'], 'role' => $row['role'], 'phone' => (string) ($row['phone'] ?? ''), 'created_at' => $row['created_at']];
         }, $query->fetchAll())]);
     }
 
@@ -999,21 +1018,26 @@ try {
         $username = trim((string) ($input['username'] ?? ''));
         $name = trim((string) ($input['name'] ?? ''));
         $password = (string) ($input['password'] ?? '');
+        $phoneRaw = trim((string) ($input['phone'] ?? ''));
+        $phone = $phoneRaw !== '' ? app_normalize_whatsapp_target($phoneRaw) : null;
         if (!preg_match('/^[A-Za-z0-9._-]{3,32}$/', $username) || $name === '' || strlen($name) > 80 || strlen($password) < 8 || strlen($password) > 200) {
             app_json(['ok' => false, 'message' => 'Username 3–32 karakter, nama wajib diisi, dan password minimal 8 karakter.'], 422);
+        }
+        if ($phoneRaw !== '' && $phone === null) {
+            app_json(['ok' => false, 'message' => 'Nomor HP tidak valid. Contoh: 08123456789'], 422);
         }
         $exists = $pdo->prepare('SELECT COUNT(*) FROM users WHERE LOWER(username) = LOWER(:username)');
         $exists->execute([':username' => $username]);
         if ((int) $exists->fetchColumn() > 0) {
             app_json(['ok' => false, 'message' => 'Username tersebut sudah digunakan.'], 409);
         }
-        $insert = $pdo->prepare('INSERT INTO users (username, display_name, password_hash, role, created_at) VALUES (:username, :name, :hash, :role, :created)');
+        $insert = $pdo->prepare('INSERT INTO users (username, display_name, password_hash, role, phone, created_at) VALUES (:username, :name, :hash, :role, :phone, :created)');
         $insert->execute([
             ':username' => $username, ':name' => $name,
             ':hash' => password_hash($password, PASSWORD_DEFAULT),
-            ':role' => 'member', ':created' => $now,
+            ':role' => 'member', ':phone' => $phone ?? '', ':created' => $now,
         ]);
-        app_json(['ok' => true, 'message' => 'Akun anggota berhasil dibuat.']);
+        app_json(['ok' => true, 'message' => 'Akun anggota berhasil dibuat.' . ($phone ? ' Nomor HP tersimpan.' : '')]);
     }
 
     if ($action === 'users/reset-password' && $method === 'POST') {
@@ -1075,6 +1099,23 @@ try {
                 ],
             ];
         }
+        // Pengaturan penerima notifikasi (batas device & pilihan user)
+        $notify = null;
+        $notifyPreview = null;
+        $houseUsers = null;
+        if ($isAdmin) {
+            $notify = app_wa_notify_settings();
+            $notifyPreview = app_wa_notify_targets();
+            // Daftar anggota rumah beserta nomor HP untuk dipilih
+            $list = $pdo->query('SELECT id, username, display_name, phone FROM users ORDER BY display_name ASC')->fetchAll();
+            $houseUsers = array_map(static fn(array $r) => [
+                'id' => (int) $r['id'],
+                'username' => (string) $r['username'],
+                'name' => (string) $r['display_name'],
+                'phone' => (string) ($r['phone'] ?? ''),
+                'phone_normalized' => app_normalize_whatsapp_target((string) ($r['phone'] ?? '')),
+            ], $list);
+        }
         app_json([
             'ok' => true,
             'can_manage_whatsapp' => $isAdmin,
@@ -1084,6 +1125,9 @@ try {
                 'token_hint' => $isAdmin && $credentials['token'] !== '' ? '••••••••' . substr($credentials['token'], -4) : '',
             ],
             'whatsapp_bot' => $whatsappBot,
+            'whatsapp_notify' => $notify,
+            'whatsapp_notify_targets' => $notifyPreview,
+            'house_users' => $houseUsers,
             'database' => $database,
         ]);
     }
@@ -1264,6 +1308,58 @@ try {
         app_require_admin($user);
         app_wa_reset_webhook_secret();
         app_json(['ok' => true, 'message' => 'Kunci webhook diganti. Tempel alamat baru di dashboard Fonnte.', 'webhook_url' => app_wa_webhook_url()]);
+    }
+
+    // Simpan pengaturan penerima notifikasi: batas device & pilihan user yang dapat notif
+    if ($action === 'whatsapp/notify/save' && $method === 'POST') {
+        app_require_admin($user);
+        // Input bisa berupa array targets/user_ids/types atau JSON string
+        $payload = $input;
+        // Normalisasi: frontend mengirim { max_devices, targets, user_ids, types }
+        if (isset($payload['targets']) && is_string($payload['targets'])) {
+            $payload['targets'] = json_decode($payload['targets'], true) ?? preg_split('/[\\s,;\\n]+/', $payload['targets']);
+        }
+        $result = app_wa_notify_save_settings([
+            'max_devices' => $payload['max_devices'] ?? $payload['maxDevices'] ?? 5,
+            'targets' => $payload['targets'] ?? $payload['extraTargets'] ?? [],
+            'user_ids' => $payload['user_ids'] ?? $payload['userIds'] ?? [],
+            'types' => $payload['types'] ?? ['reminders', 'finance'],
+        ]);
+        if (!($result['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) $result['message']], 422);
+        }
+        app_json(['ok' => true, 'message' => (string) $result['message'], 'settings' => app_wa_notify_settings(), 'targets_preview' => app_wa_notify_targets()]);
+    }
+
+    // Update nomor HP milik anggota rumah (untuk penerima notifikasi)
+    if ($action === 'users/phone/save' && $method === 'POST') {
+        app_require_admin($user);
+        $id = filter_var($input['id'] ?? $input['user_id'] ?? null, FILTER_VALIDATE_INT);
+        $phoneRaw = trim((string) ($input['phone'] ?? ''));
+        if (!$id || $id < 1) app_json(['ok' => false, 'message' => 'Pilih anggota rumah yang akan diatur nomornya.'], 422);
+        $query = $pdo->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+        $query->execute([':id' => $id]);
+        if (!$query->fetchColumn()) app_json(['ok' => false, 'message' => 'Anggota tidak ditemukan.'], 404);
+        if ($phoneRaw === '') {
+            $update = $pdo->prepare('UPDATE users SET phone = :phone WHERE id = :id');
+            $update->execute([':phone' => '', ':id' => $id]);
+            app_json(['ok' => true, 'message' => 'Nomor HP dihapus. User ini tidak akan menerima notifikasi via HP.']);
+        }
+        $phone = app_normalize_whatsapp_target($phoneRaw);
+        if ($phone === null) app_json(['ok' => false, 'message' => 'Format nomor HP tidak valid. Contoh: 08123456789'], 422);
+        $update = $pdo->prepare('UPDATE users SET phone = :phone WHERE id = :id');
+        $update->execute([':phone' => $phone, ':id' => $id]);
+        app_json(['ok' => true, 'message' => 'Nomor HP disimpan: ' . $phone]);
+    }
+
+    // Tes kirim ke semua penerima notifikasi (untuk cek multi-device)
+    if ($action === 'whatsapp/notify/test' && $method === 'POST') {
+        app_require_admin($user);
+        $text = trim((string) ($input['message'] ?? ''));
+        if ($text === '') $text = '🧪 Tes notifikasi multi-perangkat: jika kamu menerima ini, pengaturan penerima notifikasi sudah benar.';
+        $result = app_send_whatsapp_broadcast($text);
+        if (!($result['ok'] ?? false)) app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Gagal mengirim')], 422);
+        app_json(['ok' => true, 'message' => (string) $result['description'], 'sent' => (int) ($result['sent'] ?? 0), 'failed' => (int) ($result['failed'] ?? 0)]);
     }
 
     if ($action === 'whatsapp/disconnect' && $method === 'POST') {

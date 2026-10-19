@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name VARCHAR(80) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(16) NOT NULL DEFAULT 'member',
+    phone VARCHAR(60) NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL
 );
 
