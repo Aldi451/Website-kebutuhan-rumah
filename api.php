@@ -706,7 +706,7 @@ try {
             }
             throw $error;
         }
-        $telegram = app_send_telegram(app_reminder_message([
+        $whatsapp = app_send_whatsapp(app_reminder_message([
             'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
             'note' => $note, 'created_by_name' => $user['display_name'],
         ]) . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
@@ -714,8 +714,8 @@ try {
             'ok' => true,
             'message' => trim(($receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.')
                 . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')),
-            'telegram_sent' => (bool) ($telegram['ok'] ?? false),
-            'telegram_message' => (string) ($telegram['description'] ?? ''),
+            'whatsapp_sent' => (bool) ($whatsapp['ok'] ?? false),
+            'whatsapp_message' => (string) ($whatsapp['description'] ?? ''),
             'has_receipt' => $receipt !== null,
             'has_time' => $hasTime,
         ]);
@@ -853,7 +853,7 @@ try {
         app_json(['ok' => true, 'message' => 'Pengingat dihapus.']);
     }
 
-    // Kirim kabar satu pengingat ke Telegram secara manual: untuk menguji notifikasi
+    // Kirim kabar satu pengingat ke WhatsApp secara manual: untuk menguji notifikasi
     // atau menyampaikan ulang pengingat yang cron-nya belum jalan.
     if ($action === 'reminder/send' && $method === 'POST') {
         $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
@@ -867,7 +867,7 @@ try {
         if (!$reminder) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
         }
-        $result = app_send_telegram(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
+        $result = app_send_whatsapp(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -880,7 +880,7 @@ try {
         }
         app_json([
             'ok' => true,
-            'message' => 'Kabar pengingat “' . (string) $reminder['title'] . '” dikirim ke Telegram.',
+            'message' => 'Kabar pengingat “' . (string) $reminder['title'] . '” dikirim ke WhatsApp.',
             'marked_notified' => $markedNotified,
         ]);
     }
@@ -896,11 +896,11 @@ try {
             'note' => 'Ini pesan uji coba dari menu Pengaturan. Pengingat sungguhan dikirim otomatis saat waktunya tiba.',
             'created_by_name' => (string) $user['display_name'],
         ];
-        $result = app_send_telegram(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
+        $result = app_send_whatsapp(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
-        app_json(['ok' => true, 'message' => 'Contoh pesan pengingat berhasil dikirim ke Telegram.']);
+        app_json(['ok' => true, 'message' => 'Contoh pesan pengingat berhasil dikirim ke WhatsApp.']);
     }
 
     // Menambah atau mengganti bukti gambar pada transaksi/pengingat yang sudah ada.
@@ -1034,7 +1034,7 @@ try {
     }
 
     if ($action === 'settings/get' && $method === 'GET') {
-        $credentials = app_telegram_credentials();
+        $credentials = app_whatsapp_credentials();
         $isAdmin = $user['role'] === 'admin';
         $database = null;
         if ($isAdmin) {
@@ -1048,86 +1048,229 @@ try {
                 'tables' => $summary['tables'],
             ];
         }
+        $whatsappBot = null;
+        if ($isAdmin) {
+            $contacts = [];
+            foreach (app_wa_contacts() as $contact) {
+                $contacts[] = [
+                    'id' => (int) $contact['id'],
+                    'phone' => (string) $contact['phone'],
+                    'name' => (string) $contact['name'],
+                    'access' => (string) $contact['access'],
+                    'active' => (int) $contact['active'] === 1,
+                    'last_message_at' => $contact['last_message_at'] !== null ? (string) $contact['last_message_at'] : '',
+                ];
+            }
+            $monthly = app_wa_monthly_settings();
+            $whatsappBot = [
+                'webhook_url' => app_wa_webhook_url(),
+                'contacts' => $contacts,
+                'monthly' => [
+                    'enabled' => $monthly['enabled'],
+                    'day' => $monthly['day'],
+                    'time' => $monthly['time'],
+                    'last_key' => (string) app_setting('wa_monthly_last_key', ''),
+                    'last_label' => (string) app_setting('wa_monthly_last_key', '') !== '' ? app_wa_month_label((string) app_setting('wa_monthly_last_key', '')) : '',
+                    'last_at' => (string) app_setting('wa_monthly_last_at', ''),
+                ],
+            ];
+        }
         app_json([
             'ok' => true,
-            'can_manage_telegram' => $isAdmin,
-            'telegram' => [
-                'connected' => $credentials['token'] !== '' && $credentials['chat_id'] !== '',
-                'chat_id' => $isAdmin ? $credentials['chat_id'] : '',
-                'token_hint' => $isAdmin && $credentials['token'] !== '' ? '••••••••' . substr($credentials['token'], -5) : '',
+            'can_manage_whatsapp' => $isAdmin,
+            'whatsapp' => [
+                'connected' => $credentials['token'] !== '' && $credentials['target'] !== '',
+                'target' => $isAdmin ? $credentials['target'] : '',
+                'token_hint' => $isAdmin && $credentials['token'] !== '' ? '••••••••' . substr($credentials['token'], -4) : '',
             ],
+            'whatsapp_bot' => $whatsappBot,
             'database' => $database,
         ]);
     }
 
-    if ($action === 'telegram/discover' && $method === 'POST') {
+    // Memeriksa token Fonnte dan status perangkat WhatsApp tanpa menyimpan apa pun.
+    if ($action === 'whatsapp/device' && $method === 'POST') {
         app_require_admin($user);
         $token = trim((string) ($input['token'] ?? ''));
         if ($token === '') {
-            app_json(['ok' => false, 'message' => 'Masukkan token bot terlebih dahulu.'], 422);
+            $token = app_whatsapp_credentials()['token'];
         }
-        $result = app_telegram_request('getUpdates', $token, ['limit' => 20, 'allowed_updates' => ['message']]);
-        if (!($result['ok'] ?? false)) {
-            app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Telegram belum mengirim pesan dari chat ini.')], 422);
+        if ($token === '') {
+            app_json(['ok' => false, 'message' => 'Masukkan token perangkat Fonnte terlebih dahulu.'], 422);
         }
-        $updates = $result['result'] ?? [];
-        $chat = null;
-        foreach (array_reverse(is_array($updates) ? $updates : []) as $update) {
-            $candidate = $update['message']['chat'] ?? $update['edited_message']['chat'] ?? null;
-            if (is_array($candidate) && isset($candidate['id'])) {
-                $chat = $candidate;
-                break;
+        $device = app_whatsapp_device($token);
+        if (!($device['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) ($device['description'] ?? 'Perangkat tidak bisa diperiksa.')], 422);
+        }
+        $label = (string) ($device['device'] ?? '');
+        $message = (string) ($device['description'] ?? '');
+        if ($device['connected'] ?? false) {
+            $details = [];
+            if ($device['name'] !== '') {
+                $details[] = 'nama perangkat: ' . $device['name'];
             }
+            if ($device['quota'] !== '') {
+                $details[] = 'sisa kuota: ' . $device['quota'];
+            }
+            if ($device['package'] !== '') {
+                $details[] = 'paket: ' . $device['package'];
+            }
+            $message = 'Perangkat WhatsApp ' . ($label !== '' ? $label . ' ' : '') . 'terhubung.'
+                . ($details !== [] ? ' (' . implode(' · ', $details) . ')' : '');
         }
-        if (!$chat) {
-            app_json(['ok' => false, 'message' => 'Belum ada pesan dari bot. Buka chat bot Telegram lalu kirim /start, kemudian coba lagi.'], 404);
-        }
-        app_json(['ok' => true, 'chat_id' => (string) $chat['id'], 'chat_name' => trim((string) (($chat['first_name'] ?? '') . ' ' . ($chat['last_name'] ?? '')))]);
-    }
-
-    if ($action === 'telegram/save' && $method === 'POST') {
-        app_require_admin($user);
-        $currentCredentials = app_telegram_credentials();
-        $token = trim((string) ($input['token'] ?? ''));
-        $chatId = trim((string) ($input['chat_id'] ?? ''));
-        if ($token === '') {
-            $token = $currentCredentials['token'];
-        }
-        if ($chatId === '') {
-            $chatId = $currentCredentials['chat_id'];
-        }
-        if ($token === '' || $chatId === '') {
-            app_json(['ok' => false, 'message' => 'Token bot dan Chat ID harus diisi.'], 422);
-        }
-        $check = app_telegram_request('getMe', $token);
-        if (!($check['ok'] ?? false)) {
-            app_json(['ok' => false, 'message' => (string) ($check['description'] ?? 'Token bot tidak bisa diverifikasi.')], 422);
-        }
-        app_set_setting('telegram_bot_token', $token);
-        app_set_setting('telegram_chat_id', $chatId);
-        $botName = (string) ($check['result']['username'] ?? 'bot');
-        $test = app_send_telegram("✅ Bot @{$botName} berhasil terhubung.\nNotifikasi akan dikirim saat pengingat baru dibuat.");
         app_json([
             'ok' => true,
-            'message' => ($test['ok'] ?? false) ? "Bot @{$botName} tersambung. Pesan percobaan sudah dikirim." : "Token tersimpan, tetapi pesan percobaan gagal: " . (string) ($test['description'] ?? 'cek Chat ID dan izin bot.'),
-            'telegram_sent' => (bool) ($test['ok'] ?? false),
+            'connected' => (bool) ($device['connected'] ?? false),
+            'device' => $label,
+            'device_status' => (string) ($device['device_status'] ?? ''),
+            'quota' => (string) ($device['quota'] ?? ''),
+            'package' => (string) ($device['package'] ?? ''),
+            'message' => $message,
         ]);
     }
 
-    if ($action === 'telegram/test' && $method === 'POST') {
+    if ($action === 'whatsapp/save' && $method === 'POST') {
         app_require_admin($user);
-        $test = app_send_telegram("✅ Pesan percobaan notifikasi pengingat rumah.\nBot dan Chat ID sudah terhubung.");
+        $currentCredentials = app_whatsapp_credentials();
+        $token = trim((string) ($input['token'] ?? ''));
+        $targetInput = trim((string) ($input['target'] ?? ''));
+        if ($token === '') {
+            $token = $currentCredentials['token'];
+        }
+        if ($targetInput === '') {
+            $targetInput = $currentCredentials['target'];
+        }
+        if ($token === '' || $targetInput === '') {
+            app_json(['ok' => false, 'message' => 'Token perangkat Fonnte dan nomor WhatsApp tujuan harus diisi.'], 422);
+        }
+        $device = app_whatsapp_device($token);
+        if (!($device['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) ($device['description'] ?? 'Token Fonnte tidak bisa diverifikasi.')], 422);
+        }
+        if (!($device['connected'] ?? false)) {
+            $deviceNumber = (string) ($device['device'] ?? '');
+            app_json([
+                'ok' => false,
+                'message' => 'Token valid, tetapi perangkat WhatsApp'
+                    . ($deviceNumber !== '' ? ' ' . $deviceNumber : '')
+                    . ' belum terhubung. Buka dashboard Fonnte lalu scan QR untuk menyambungkannya, kemudian simpan lagi.',
+            ], 422);
+        }
+        $target = app_normalize_whatsapp_target($targetInput);
+        if ($target === null) {
+            app_json(['ok' => false, 'message' => 'Nomor WhatsApp tujuan tidak valid. Contoh: 08123456789 atau 628123456789.'], 422);
+        }
+        if (app_whatsapp_number_registered($token, $target) === false) {
+            app_json(['ok' => false, 'message' => 'Nomor ' . $target . ' tidak terdaftar di WhatsApp. Periksa nomornya lalu coba lagi.'], 422);
+        }
+        app_set_setting('fonnte_token', $token);
+        app_set_setting('fonnte_target', $target);
+        $deviceNumber = app_normalize_whatsapp_target((string) ($device['device'] ?? ''));
+        if ($deviceNumber !== null) {
+            app_set_setting('wa_device_number', $deviceNumber);
+        }
+        // Bersihkan pengaturan bot Telegram dari versi lama supaya token lamanya tidak tertinggal.
+        $delete = $pdo->prepare("DELETE FROM app_settings WHERE setting_key IN ('telegram_bot_token', 'telegram_chat_id')");
+        $delete->execute();
+        $deviceLabel = (string) ($device['device'] ?? '');
+        $test = app_send_whatsapp("✅ Notifikasi WhatsApp rumah berhasil terhubung.\nKabar pengingat akan dikirim ke nomor ini.");
+        app_json([
+            'ok' => true,
+            'message' => ($test['ok'] ?? false)
+                ? 'Perangkat WhatsApp' . ($deviceLabel !== '' ? ' ' . $deviceLabel : '') . ' tersambung. Pesan percobaan sudah dikirim.'
+                : 'Token dan nomor tersimpan, tetapi pesan percobaan gagal: ' . (string) ($test['description'] ?? 'periksa koneksi perangkat Fonnte.'),
+            'whatsapp_sent' => (bool) ($test['ok'] ?? false),
+            'target' => $target,
+        ]);
+    }
+
+    if ($action === 'whatsapp/test' && $method === 'POST') {
+        app_require_admin($user);
+        $test = app_send_whatsapp("✅ Pesan percobaan notifikasi pengingat rumah.\nPerangkat Fonnte dan nomor tujuan sudah terhubung.");
         if (!($test['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($test['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
-        app_json(['ok' => true, 'message' => 'Pesan percobaan berhasil dikirim ke Telegram.']);
+        app_json(['ok' => true, 'message' => 'Pesan percobaan berhasil dikirim ke WhatsApp.']);
     }
 
-    if ($action === 'telegram/disconnect' && $method === 'POST') {
+    if ($action === 'whatsapp/contact/save' && $method === 'POST') {
         app_require_admin($user);
-        $delete = $pdo->prepare("DELETE FROM app_settings WHERE setting_key IN ('telegram_bot_token', 'telegram_chat_id')");
+        $result = app_wa_save_contact([
+            'id' => $input['id'] ?? null,
+            'phone' => $input['phone'] ?? '',
+            'name' => $input['name'] ?? '',
+            'access' => $input['access'] ?? 'member',
+            'active' => $input['active'] ?? 1,
+        ]);
+        if (!($result['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) ($result['message'] ?? 'Nomor tidak bisa disimpan.')], 422);
+        }
+        app_json(['ok' => true, 'message' => (string) $result['message'], 'id' => (int) ($result['id'] ?? 0)]);
+    }
+
+    if ($action === 'whatsapp/contact/toggle' && $method === 'POST') {
+        app_require_admin($user);
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1) {
+            app_json(['ok' => false, 'message' => 'Nomor bot tidak ditemukan.'], 422);
+        }
+        $active = app_wa_toggle_contact((int) $id);
+        if ($active === null) {
+            app_json(['ok' => false, 'message' => 'Nomor bot sudah tidak ada.'], 404);
+        }
+        app_json(['ok' => true, 'message' => $active ? 'Nomor diaktifkan kembali.' : 'Akses nomor dinonaktifkan.']);
+    }
+
+    if ($action === 'whatsapp/contact/delete' && $method === 'POST') {
+        app_require_admin($user);
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$id || $id < 1 || !app_wa_delete_contact((int) $id)) {
+            app_json(['ok' => false, 'message' => 'Nomor bot tidak ditemukan.'], 404);
+        }
+        app_json(['ok' => true, 'message' => 'Nomor dihapus dari daftar bot.']);
+    }
+
+    if ($action === 'whatsapp/monthly/save' && $method === 'POST') {
+        app_require_admin($user);
+        $enabled = (string) ($input['enabled'] ?? '0') === '1';
+        $result = app_wa_save_monthly_settings($enabled, trim((string) ($input['day'] ?? 'last')), trim((string) ($input['time'] ?? '20:00')));
+        if (!($result['ok'] ?? false)) {
+            app_json(['ok' => false, 'message' => (string) $result['message']], 422);
+        }
+        app_json(['ok' => true, 'message' => (string) $result['message']]);
+    }
+
+    // Kirim laporan satu bulan sekarang juga ke semua nomor tujuan.
+    if ($action === 'whatsapp/report/send' && $method === 'POST') {
+        app_require_admin($user);
+        $month = trim((string) ($input['month'] ?? ''));
+        if ($month === '') {
+            $month = date('Y-m');
+        }
+        if (!app_valid_month($month)) {
+            app_json(['ok' => false, 'message' => 'Format bulan harus YYYY-MM, misalnya 2026-10.'], 422);
+        }
+        $result = app_wa_send_monthly_report($month, true);
+        app_json([
+            'ok' => (int) ($result['sent'] ?? 0) > 0,
+            'message' => (string) ($result['message'] ?? 'Laporan tidak terkirim.'),
+            'sent' => (int) ($result['sent'] ?? 0),
+            'failed' => (int) ($result['failed'] ?? 0),
+            'recipients' => (int) ($result['recipients'] ?? 0),
+        ], (int) ($result['sent'] ?? 0) > 0 ? 200 : 422);
+    }
+
+    if ($action === 'whatsapp/webhook/reset' && $method === 'POST') {
+        app_require_admin($user);
+        app_wa_reset_webhook_secret();
+        app_json(['ok' => true, 'message' => 'Kunci webhook diganti. Tempel alamat baru di dashboard Fonnte.', 'webhook_url' => app_wa_webhook_url()]);
+    }
+
+    if ($action === 'whatsapp/disconnect' && $method === 'POST') {
+        app_require_admin($user);
+        $delete = $pdo->prepare("DELETE FROM app_settings WHERE setting_key IN ('fonnte_token', 'fonnte_target', 'telegram_bot_token', 'telegram_chat_id')");
         $delete->execute();
-        app_json(['ok' => true, 'message' => 'Bot Telegram sudah dilepas.']);
+        app_json(['ok' => true, 'message' => 'Koneksi WhatsApp (Fonnte) sudah dilepas.']);
     }
 
     app_json(['ok' => false, 'message' => 'Aksi tidak dikenal.'], 404);

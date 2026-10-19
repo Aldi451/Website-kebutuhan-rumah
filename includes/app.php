@@ -16,8 +16,8 @@ function app_config(): array
         'db_user' => '',
         'db_password' => '',
         'timezone' => 'Asia/Jakarta',
-        'telegram_bot_token' => '',
-        'telegram_chat_id' => '',
+        'fonnte_token' => '',
+        'fonnte_target' => '',
         'cron_secret' => '',
     ];
 
@@ -110,6 +110,7 @@ function app_schema_statements(bool $mysql): array
 {
     $id = $mysql ? 'INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
     $int = $mysql ? 'INT UNSIGNED NOT NULL' : 'INTEGER NOT NULL';
+    $nullableInt = $mysql ? 'INT UNSIGNED NULL' : 'INTEGER NULL';
     $money = $mysql ? 'BIGINT UNSIGNED NOT NULL' : 'INTEGER NOT NULL';
     $blob = $mysql ? 'MEDIUMBLOB NOT NULL' : 'BLOB NOT NULL';
     $engine = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
@@ -179,6 +180,20 @@ function app_schema_statements(bool $mysql): array
         image_data {$blob},
         uploaded_by {$int},
         created_at DATETIME NOT NULL" . ($mysql ? ",\n        KEY attachment_lookup (entity_type, entity_id)" : '') . "
+    ){$engine}";
+
+    // Nomor WhatsApp yang boleh memakai bot laporan (lihat includes/wa.php).
+    // access: 'admin' boleh melihat semua angka, 'member' hanya pengeluaran & target.
+    $active = $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1';
+    $statements[] = "CREATE TABLE IF NOT EXISTS wa_contacts (
+        id {$id},
+        phone VARCHAR(60) NOT NULL UNIQUE,
+        name VARCHAR(80) NOT NULL DEFAULT '',
+        access VARCHAR(10) NOT NULL DEFAULT 'member',
+        active {$active},
+        user_id {$nullableInt},
+        last_message_at DATETIME NULL,
+        created_at DATETIME NOT NULL
     ){$engine}";
 
     if (!$mysql) {
@@ -307,12 +322,12 @@ function app_set_setting(string $key, string $value): void
     }
 }
 
-function app_telegram_credentials(): array
+function app_whatsapp_credentials(): array
 {
     $config = app_config();
     return [
-        'token' => app_setting('telegram_bot_token', (string) $config['telegram_bot_token']),
-        'chat_id' => app_setting('telegram_chat_id', (string) $config['telegram_chat_id']),
+        'token' => app_setting('fonnte_token', (string) $config['fonnte_token']),
+        'target' => app_setting('fonnte_target', (string) $config['fonnte_target']),
     ];
 }
 
@@ -323,46 +338,81 @@ function app_is_wasm_preview(): bool
 }
 
 /**
- * Explains a failed connection to Telegram in plain Indonesian.
+ * Explains a failed connection to Fonnte in plain Indonesian.
  * $code is the cURL error number (0 when unknown); $detail is the low-level message.
  */
-function app_telegram_network_error(int $code, string $detail = ''): string
+function app_whatsapp_network_error(int $code, string $detail = '', string $token = ''): string
 {
-    // PHP warnings quote the full request URL, which contains the bot token.
-    $detail = trim((string) preg_replace('~bot\d+:[A-Za-z0-9_-]+~', 'bot***', $detail));
+    // Never let a token from the request end up in a user-facing error message.
+    $detail = $token !== '' ? str_replace($token, '***', $detail) : $detail;
+    $detail = trim((string) preg_replace('/\s+/', ' ', $detail));
     $suffix = $detail !== '' ? " (Detail: {$detail})" : '';
 
     if (in_array($code, [5, 6], true) || preg_match('/getaddrinfo|name or service not known|could not resolve|name resolution|resolving timed out/i', $detail)) {
-        return 'Server hosting tidak bisa menghubungi Telegram: alamat api.telegram.org tidak ditemukan oleh DNS hosting. '
-            . 'Token dan Chat ID belum sempat diperiksa, jadi isiannya belum tentu salah. '
-            . 'Penyebab paling umum adalah hosting memblokir Telegram (InfinityFree paket gratis memang memblokirnya). '
-            . 'Lihat README bagian “Troubleshooting Telegram”.' . $suffix;
+        return 'Server hosting tidak bisa menghubungi Fonnte: alamat api.fonnte.com tidak ditemukan oleh DNS hosting. '
+            . 'Token belum sempat diperiksa, jadi isiannya belum tentu salah. '
+            . 'Pastikan hosting mengizinkan koneksi keluar HTTPS; beberapa hosting gratis membatasi koneksi keluar. '
+            . 'Lihat README bagian “Troubleshooting WhatsApp (Fonnte)”.' . $suffix;
     }
     if (in_array($code, [35, 51, 58, 60, 77], true) || preg_match('/ssl|certificate/i', $detail)) {
-        return 'Server hosting gagal membuat koneksi aman (SSL) ke Telegram. '
-            . 'Biasanya sertifikat CA di server sudah usang, atau hosting memblokir/mengalihkan api.telegram.org. '
-            . 'Token dan Chat ID belum sempat diperiksa.' . $suffix;
+        return 'Server hosting gagal membuat koneksi aman (SSL) ke Fonnte. '
+            . 'Biasanya sertifikat CA di server sudah usang, atau hosting memblokir/mengalihkan api.fonnte.com. '
+            . 'Token belum sempat diperiksa.' . $suffix;
     }
     if (in_array($code, [7, 28], true) || preg_match('/refused|timed out|timeout|unreachable|no route/i', $detail)) {
-        return 'Server hosting tidak berhasil tersambung ke Telegram (koneksi ditolak atau waktu habis). '
-            . 'Pastikan hosting mengizinkan koneksi keluar HTTPS (port 443) ke api.telegram.org; hosting gratis sering memblokirnya. '
-            . 'Token dan Chat ID belum sempat diperiksa.' . $suffix;
+        return 'Server hosting tidak berhasil tersambung ke Fonnte (koneksi ditolak atau waktu habis). '
+            . 'Pastikan hosting mengizinkan koneksi keluar HTTPS (port 443) ke api.fonnte.com; hosting gratis sering membatasinya. '
+            . 'Token belum sempat diperiksa.' . $suffix;
     }
-    return 'Tidak bisa menghubungi Telegram. Cek koneksi keluar (HTTPS) dari hosting.' . $suffix;
+    return 'Tidak bisa menghubungi Fonnte. Cek koneksi keluar (HTTPS) dari hosting.' . $suffix;
 }
 
-/** Calls the Telegram Bot API over HTTPS. */
-function app_telegram_request(string $method, string $token, array $payload = []): array
+/** Menerjemahkan alasan penolakan Fonnte menjadi kalimat yang mudah dipahami. */
+function app_whatsapp_reason_text(string $reason): string
 {
-    if (!preg_match('/^[0-9]+:[A-Za-z0-9_-]{20,}$/', $token)) {
-        return ['ok' => false, 'description' => 'Format token bot tidak valid.'];
+    $normalized = strtolower(trim($reason));
+    if ($normalized === '') {
+        return 'Fonnte menolak permintaan tanpa penjelasan.';
+    }
+    if (str_contains($normalized, 'token invalid') || str_contains($normalized, 'invalid token')) {
+        return 'Token Fonnte tidak valid. Salin ulang token perangkat dari menu Device di dashboard Fonnte.';
+    }
+    if (str_contains($normalized, 'unknown user')) {
+        return 'Token Fonnte tidak dikenali. Pastikan yang dipakai adalah token perangkat, bukan token akun.';
+    }
+    if (str_contains($normalized, 'disconnect') || str_contains($normalized, 'not connect') || str_contains($normalized, 'must connect')) {
+        return 'Perangkat WhatsApp di Fonnte belum terhubung. Buka dashboard Fonnte lalu sambungkan lagi lewat scan QR.';
+    }
+    if (str_contains($normalized, 'target required')) {
+        return 'Nomor WhatsApp tujuan wajib diisi.';
+    }
+    if (str_contains($normalized, 'target invalid') || str_contains($normalized, 'invalid target')) {
+        return 'Nomor WhatsApp tujuan tidak valid. Periksa formatnya, misalnya 08123456789.';
+    }
+    if (str_contains($normalized, 'quota')) {
+        return 'Kuota Fonnte habis atau tidak mencukupi. Periksa paket di dashboard Fonnte.';
+    }
+    return 'Fonnte: ' . $reason;
+}
+
+/**
+ * Memanggil API Fonnte (https://api.fonnte.com) lewat HTTPS.
+ * Token dikirim pada header Authorization, bukan pada URL.
+ *
+ * @return array{ok: bool, description: string, data: array}
+ */
+function app_whatsapp_request(string $endpoint, string $token, array $payload = []): array
+{
+    $token = trim($token);
+    if ($token === '' || strlen($token) < 8 || strlen($token) > 200 || preg_match('/\s/', $token)) {
+        return ['ok' => false, 'description' => 'Format token Fonnte tidak valid.', 'data' => []];
     }
     if (app_is_wasm_preview()) {
         // Opening a socket inside PHP-WASM throws a JS exception that takes the whole preview server down.
-        return ['ok' => false, 'description' => 'Preview lokal (npm start) tidak punya akses internet, jadi Telegram tidak bisa dihubungi dari sini. Uji fitur ini setelah situs diunggah ke hosting yang mengizinkan koneksi keluar ke api.telegram.org.'];
+        return ['ok' => false, 'description' => 'Preview lokal (npm start) tidak punya akses internet, jadi WhatsApp belum bisa dihubungi dari sini. Uji fitur ini setelah situs diunggah ke hosting yang mengizinkan koneksi keluar ke api.fonnte.com.', 'data' => []];
     }
-    $url = 'https://api.telegram.org/bot' . $token . '/' . $method;
-    $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $url = 'https://api.fonnte.com/' . ltrim($endpoint, '/');
+    $body = http_build_query($payload, '', '&', PHP_QUERY_RFC1738);
     $response = false;
 
     if (function_exists('curl_init')) {
@@ -370,10 +420,14 @@ function app_telegram_request(string $method, string $token, array $payload = []
         curl_setopt_array($curl, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_HTTPHEADER => [
+                'Authorization: ' . $token,
+                'Content-Type: application/x-www-form-urlencoded',
+                'Accept: application/json',
+            ],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_TIMEOUT => 15,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
         $response = curl_exec($curl);
@@ -381,15 +435,15 @@ function app_telegram_request(string $method, string $token, array $payload = []
         $curlError = curl_error($curl);
         curl_close($curl);
         if ($response === false) {
-            return ['ok' => false, 'description' => app_telegram_network_error($curlErrno, $curlError)];
+            return ['ok' => false, 'description' => app_whatsapp_network_error($curlErrno, $curlError, $token), 'data' => []];
         }
     } else {
         $context = stream_context_create([
             'http' => [
                 'method' => 'POST',
-                'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
+                'header' => "Authorization: {$token}\r\nContent-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n",
                 'content' => $body,
-                'timeout' => 10,
+                'timeout' => 15,
                 'ignore_errors' => true,
             ],
             'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
@@ -398,28 +452,141 @@ function app_telegram_request(string $method, string $token, array $payload = []
         $response = @file_get_contents($url, false, $context);
         if ($response === false) {
             $lastError = error_get_last();
-            return ['ok' => false, 'description' => app_telegram_network_error(0, (string) ($lastError['message'] ?? ''))];
+            return ['ok' => false, 'description' => app_whatsapp_network_error(0, (string) ($lastError['message'] ?? ''), $token), 'data' => []];
         }
     }
 
     $decoded = json_decode((string) $response, true);
     if (!is_array($decoded)) {
-        return ['ok' => false, 'description' => 'Telegram mengirim respons yang tidak dikenali.'];
+        return ['ok' => false, 'description' => 'Fonnte mengirim respons yang tidak dikenali.', 'data' => []];
     }
-    return $decoded;
+    $ok = ($decoded['status'] ?? false) === true;
+    $reason = trim((string) ($decoded['reason'] ?? $decoded['detail'] ?? $decoded['message'] ?? ''));
+    return [
+        'ok' => $ok,
+        'description' => $ok ? ($reason !== '' ? $reason : 'Permintaan diterima Fonnte.') : app_whatsapp_reason_text($reason),
+        'data' => $decoded,
+    ];
 }
 
-function app_send_telegram(string $text): array
+/**
+ * Merapikan nomor tujuan menjadi format 62..., atau membiarkan ID grup (@g.us).
+ * Mengembalikan null bila formatnya tidak masuk akal.
+ */
+function app_normalize_whatsapp_target(string $target): ?string
 {
-    $credentials = app_telegram_credentials();
-    if ($credentials['token'] === '' || $credentials['chat_id'] === '') {
-        return ['ok' => false, 'description' => 'Bot Telegram belum dihubungkan.'];
+    $target = trim($target);
+    if ($target === '' || strlen($target) > 60) {
+        return null;
     }
-    return app_telegram_request('sendMessage', $credentials['token'], [
-        'chat_id' => $credentials['chat_id'],
-        'text' => $text,
-        'disable_web_page_preview' => true,
-    ]);
+    if (preg_match('/^[0-9][0-9\-]{5,50}@g\.us$/', $target)) {
+        return $target;
+    }
+    // Sebagian gateway mengirim nomor dengan akhiran @s.whatsapp.net / @c.us.
+    $target = (string) preg_replace('/@(s\.whatsapp\.net|c\.us)$/i', '', $target);
+    $digits = preg_replace('/[\s\-\.\(\)]/', '', $target);
+    if (!is_string($digits)) {
+        return null;
+    }
+    if (str_starts_with($digits, '+')) {
+        $digits = substr($digits, 1);
+    }
+    if (str_starts_with($digits, '0')) {
+        $digits = '62' . substr($digits, 1);
+    } elseif (str_starts_with($digits, '8')) {
+        $digits = '62' . $digits;
+    }
+    return preg_match('/^[1-9][0-9]{7,14}$/', $digits) ? $digits : null;
+}
+
+/**
+ * Mengecek token sekaligus status perangkat WhatsApp di Fonnte.
+ *
+ * @return array ok, description, connected, device, device_status, name, quota, package, expired
+ */
+function app_whatsapp_device(string $token): array
+{
+    $result = app_whatsapp_request('device', $token);
+    if (!($result['ok'] ?? false)) {
+        return $result;
+    }
+    $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $status = strtolower(trim((string) ($data['device_status'] ?? '')));
+    $connected = $status === 'connect';
+    return [
+        'ok' => true,
+        'description' => $connected
+            ? 'Perangkat WhatsApp terhubung dan siap mengirim pesan.'
+            : 'Token valid, tetapi perangkat WhatsApp belum terhubung. Buka dashboard Fonnte lalu scan QR untuk menyambungkannya.',
+        'data' => $data,
+        'connected' => $connected,
+        'device' => (string) ($data['device'] ?? ''),
+        'device_status' => $status,
+        'name' => (string) ($data['name'] ?? ''),
+        'quota' => (string) ($data['quota'] ?? ''),
+        'package' => (string) ($data['package'] ?? ''),
+        'expired' => (string) ($data['expired'] ?? ''),
+    ];
+}
+
+/**
+ * Memeriksa apakah nomor terdaftar di WhatsApp lewat endpoint /validate.
+ * Null berarti hasilnya tidak bisa dipastikan (mis. API sedang bermasalah),
+ * sehingga pemanggil sebaiknya tidak memblokir pengguna.
+ */
+function app_whatsapp_number_registered(string $token, string $target): ?bool
+{
+    if (str_contains($target, '@g.us')) {
+        return null;
+    }
+    $result = app_whatsapp_request('validate', $token, ['target' => $target, 'countryCode' => '62']);
+    if (!($result['ok'] ?? false)) {
+        return null;
+    }
+    $registered = $result['data']['registered'] ?? [];
+    $notRegistered = $result['data']['not_registered'] ?? [];
+    $matches = static function ($list) use ($target): bool {
+        if (!is_array($list)) {
+            return false;
+        }
+        foreach ($list as $value) {
+            if ((string) $value === $target) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if ($matches($notRegistered)) {
+        return false;
+    }
+    if ($matches($registered)) {
+        return true;
+    }
+    return null;
+}
+
+function app_send_whatsapp(string $text, ?string $target = null, ?string $token = null): array
+{
+    $credentials = app_whatsapp_credentials();
+    $token = $token !== null && trim($token) !== '' ? trim($token) : $credentials['token'];
+    $target = $target !== null && trim($target) !== '' ? trim($target) : $credentials['target'];
+    if ($token === '' || $target === '') {
+        return ['ok' => false, 'description' => 'Notifikasi WhatsApp (Fonnte) belum dihubungkan.', 'data' => []];
+    }
+    $payload = [
+        'target' => $target,
+        'message' => $text,
+        // Jangan memakai kuota kalau perangkat sedang terputus.
+        'connectOnly' => 'true',
+    ];
+    if (!str_contains($target, '@g.us')) {
+        $payload['countryCode'] = '62';
+    }
+    $result = app_whatsapp_request('send', $token, $payload);
+    if ($result['ok'] ?? false) {
+        $result['description'] = 'Pesan WhatsApp masuk antrean pengiriman Fonnte.';
+    }
+    return $result;
 }
 
 function app_valid_month(string $month): bool
@@ -501,7 +668,7 @@ function app_resolve_reminder_when(array $input): ?array
 }
 
 /**
- * Menulis waktu pengingat untuk pesan Telegram: dengan jam bila penggunanya
+ * Menulis waktu pengingat untuk pesan WhatsApp: dengan jam bila penggunanya
  * mengisi jam, atau keterangan "sepanjang hari" bila jamnya dilewati.
  */
 function app_reminder_when_text(string $reminderAt, int $hasTime = 1): string
@@ -516,7 +683,7 @@ function app_reminder_when_text(string $reminderAt, int $hasTime = 1): string
 }
 
 /**
- * Menyusun isi pesan Telegram untuk satu pengingat.
+ * Menyusun isi pesan WhatsApp untuk satu pengingat.
  * Dipakai saat pengingat dibuat, dikirim manual, dan oleh cron saat jatuh tempo,
  * supaya bentuk kabarnya sama di mana pun.
  *
@@ -765,7 +932,7 @@ function app_format_amount(mixed $amount): string
 
 function app_database_tables(): array
 {
-    return ['users', 'transactions', 'monthly_targets', 'reminders', 'attachments', 'app_settings'];
+    return ['users', 'transactions', 'monthly_targets', 'reminders', 'attachments', 'wa_contacts', 'app_settings'];
 }
 
 function app_database_summary(): array
@@ -882,3 +1049,5 @@ function app_name_initials(string $name): string
     }
     return strtoupper($initials !== '' ? $initials : 'R');
 }
+
+require_once __DIR__ . '/wa.php';

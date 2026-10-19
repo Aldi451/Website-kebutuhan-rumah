@@ -12,8 +12,8 @@ const databasePath = path.join(root, 'storage', 'rumahku.sqlite');
 // Upload bukti berupa gambar terkompres dikirim sebagai JSON+base64, jadi badan permintaan boleh lebih besar.
 const maxRequestBody = 12 * 1024 * 1024;
 const filesToServe = [
-  'index.php', 'api.php', 'cron.php', '.htaccess', 'config.php',
-  'includes/app.php', 'assets/app.js', 'assets/importer.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
+  'index.php', 'api.php', 'cron.php', 'whatsapp.php', '.htaccess', 'config.php',
+  'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
 ];
 
 console.log('Menyiapkan PHP 8.2 untuk preview lokal…');

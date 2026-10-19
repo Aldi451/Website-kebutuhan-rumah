@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     KEY reminder_due_lookup (status, reminder_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Pengaturan aplikasi (token bot Telegram, dsb.) -----------------------
+-- Pengaturan aplikasi (token Fonnte / notifikasi WhatsApp, dsb.) ------------
 CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(80) NOT NULL PRIMARY KEY,
     setting_value TEXT NOT NULL,
@@ -88,6 +88,19 @@ CREATE TABLE IF NOT EXISTS attachments (
     uploaded_by INT UNSIGNED NOT NULL,
     created_at DATETIME NOT NULL,
     KEY attachment_lookup (entity_type, entity_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Nomor WhatsApp yang boleh memakai bot laporan ----------------------
+-- access: 'admin' = boleh melihat semua angka, 'member' = pengeluaran & target.
+CREATE TABLE IF NOT EXISTS wa_contacts (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    phone VARCHAR(60) NOT NULL UNIQUE,
+    name VARCHAR(80) NOT NULL DEFAULT '',
+    access VARCHAR(10) NOT NULL DEFAULT 'member',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    user_id INT UNSIGNED NULL,
+    last_message_at DATETIME NULL,
+    created_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Akun admin awal tidak ditulis di sini dengan sengaja.

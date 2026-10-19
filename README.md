@@ -14,7 +14,8 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 - **Pengingat:** simpan judul, tanggal, **jam (opsional)**, kategori, catatan, dan bukti foto opsional, lalu ubah, tandai selesai, atau hapus. Contoh: “Ganti oli motor” tanggal 26 jam 10:30, atau “Bayar tagihan air” tanggal 20 **tanpa jam** (dianggap sepanjang hari).
 - **Import massal Excel:** unggah transaksi atau pengingat dari workbook `.xlsx` atau CSV, pratinjau baris yang valid, dan tambahkan sampai 500 baris sekaligus.
 - **Akun admin dan anggota:** admin dapat menambahkan akun anggota dan mengatur ulang kata sandinya. Setiap pengguna dapat mengganti kata sandi akunnya sendiri.
-- **Bot Telegram opsional:** bot menerima kabar saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba, ada tombol **Tes kirim pengingat** di Pengaturan, dan tiap pengingat punya tombol **kirim manual** supaya kabarnya bisa diteruskan kapan saja tanpa menunggu cron.
+- **Notifikasi WhatsApp via Fonnte (opsional):** pengingat bisa dikirim ke nomor WhatsApp atau grup saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba, ada tombol **Tes kirim pengingat** di Pengaturan, dan tiap pengingat punya tombol **kirim manual** supaya kabarnya bisa diteruskan kapan saja tanpa menunggu cron.
+- **Bot WhatsApp (tanya laporan & rekap bulanan):** nomor yang didaftarkan admin bisa bertanya langsung lewat WhatsApp — rekap bulan ini/bulan lalu, target dan status minus, kategori tertentu, pengeluaran terbesar, transaksi terakhir, hingga saldo (khusus admin). Bot juga mengirim **laporan bulanan otomatis** di akhir bulan berisi pemasukan, pengeluaran, dan apakah pengeluaran sudah sesuai target atau minus.
 - **Bahasa Indonesia dan Rupiah**, responsif untuk HP maupun desktop.
 
 ## Di mana datanya tersimpan (dan SQL-nya di mana)?
@@ -24,7 +25,8 @@ dibuat dan diperbarui otomatis setiap kali website dibuka, langsung dari kode di
 `includes/app.php`:
 
 - `app_schema_statements()` — daftar lengkap `CREATE TABLE` untuk pengguna, transaksi,
-  target bulanan, pengingat, pengaturan, dan bukti gambar (`attachments`).
+  target bulanan, pengingat, pengaturan, bukti gambar (`attachments`), dan nomor bot
+  WhatsApp (`wa_contacts`).
 - `app_create_schema()` — menjalankan daftar itu saat pertama kali aplikasi dijalankan.
 - `app_ensure_column()` — pembaruan ringan (`ALTER TABLE ... ADD COLUMN`) untuk instalasi lama,
   jadi tidak ada data yang hilang saat aplikasi versi baru diunggah.
@@ -63,7 +65,7 @@ folder yang bisa diakses publik dan jangan bagikan file backup ke orang lain.
 3. Baris pertama pada sheet pertama harus berisi nama kolom. Untuk transaksi, kolom wajibnya **Jenis**, **Nama transaksi**, **Nominal**, dan **Tanggal**; jenis diisi `Pemasukan` atau `Pengeluaran`. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional — bila dikosongkan pengingatnya menjadi "sepanjang hari" dan kabarnya dikirim sekitar 09:00. Kategori dan catatan bersifat opsional.
 4. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per file, ukuran maksimal 10 MB.
 
-Setiap impor menambahkan catatan baru—mengunggah file yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan Telegram satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
+Setiap impor menambahkan catatan baru—mengunggah file yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan WhatsApp satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
 
 ## Menyimpan bukti gambar (opsional)
 
@@ -116,7 +118,7 @@ Izinnya sama seperti menghapus: pembuat catatan atau admin rumah.
 
 Kolom **Tanggal** wajib, kolom **Jam** boleh dikosongkan:
 
-- **Diisi jam** → daftar menampilkan jamnya, dan kabar Telegram dikirim pada jam itu (WIB).
+- **Diisi jam** → daftar menampilkan jamnya, dan kabar WhatsApp dikirim pada jam itu (WIB).
 - **Dikosongkan** → pengingat dianggap **sepanjang hari**; daftar menampilkan “Seharian” dengan
   tanda “Tanpa jam”, dan kabarnya dikirim sekitar **09:00** pada tanggal tersebut.
 - Tombol **Tanpa jam** di sebelah kolom jam menghapus isian jam kapan saja, termasuk saat mengedit
@@ -124,14 +126,14 @@ Kolom **Tanggal** wajib, kolom **Jam** boleh dikosongkan:
 
 ### Tes dan kirim pengingat manual
 
-- **Pengaturan → Notifikasi Telegram → Tes kirim pengingat** (admin): mengirim contoh pesan
-  pengingat ke chat Telegram supaya bentuk kabarnya bisa dicek tanpa membuat catatan baru.
-  Tombol **Tes bot** mengirim pesan percobaan koneksi yang lebih singkat.
-- **Daftar Pengingat → ikon kirim** pada tiap pengingat: meneruskan pengingat itu ke Telegram saat
+- **Pengaturan → Notifikasi WhatsApp (Fonnte) → Tes kirim pengingat** (admin): mengirim contoh pesan
+  pengingat ke WhatsApp supaya bentuk kabarnya bisa dicek tanpa membuat catatan baru.
+  Tombol **Tes kirim WhatsApp** mengirim pesan percobaan koneksi yang lebih singkat.
+- **Daftar Pengingat → ikon kirim** pada tiap pengingat: meneruskan pengingat itu ke WhatsApp saat
   itu juga. Berguna untuk menguji notifikasi, mengingatkan anggota rumah sekali lagi, atau
   menutupi cron yang belum terpasang. Pengingat yang sudah jatuh tempo dan dikirim manual ditandai
   sudah dikabari, jadi cron tidak mengirim pesan yang sama dua kali.
-- Semua anggota rumah yang login boleh memakai tombol kirim manual; hasilnya masuk ke chat Telegram
+- Semua anggota rumah yang login boleh memakai tombol kirim manual; hasilnya masuk ke WhatsApp
   rumah yang sama.
 
 ## Laporan keuangan
@@ -160,8 +162,6 @@ Segera ganti kata sandi ini di **Pengaturan → Keamanan akun** setelah login, t
 
 Perlu Node.js 22 atau lebih baru. PHP 8.2 WebAssembly digunakan hanya untuk menjalankan preview lokal; situs yang diunggah ke hosting tetap berjalan sebagai PHP biasa.
 
-
-
 ## Pasang di InfinityFree / shared hosting PHP
 
 Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO MySQL**; folder `storage/` juga memiliki proteksi `.htaccess` untuk instalasi lokal SQLite.
@@ -173,59 +173,206 @@ Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO M
 5. Login, lalu langsung ganti kata sandi admin. Dari menu **Anggota rumah**, admin dapat membuat akun tambahan.
 6. Cek **Pengaturan → Backup & database** untuk memastikan jumlah barisnya sudah sesuai, lalu unduh backup pertama sebagai salinan.
 
-`config.php` sengaja tidak disertakan di Git. Simpan salinan rahasianya dengan aman. Jangan kirim password database atau token Telegram ke chat publik. Backup berkala dapat dilakukan dari menu Pengaturan (unduh `.sql`) atau dengan mengekspor database dari phpMyAdmin.
+`config.php` sengaja tidak disertakan di Git. Simpan salinan rahasianya dengan aman. Jangan kirim password database atau token Fonnte ke chat publik. Backup berkala dapat dilakukan dari menu Pengaturan (unduh `.sql`) atau dengan mengekspor database dari phpMyAdmin.
 
 Ekstensi PHP yang dipakai: **PDO MySQL/SQLite** (wajib), **GD** (untuk kompresi ulang gambar bukti di server; kalau GD tidak aktif aplikasi tetap berjalan, gambar hanya dikompres di browser), dan **fileinfo** (opsional).
 
-## Hubungkan bot Telegram
+## Hubungkan notifikasi WhatsApp (Fonnte)
 
-1. Buat bot menggunakan **@BotFather**, lalu simpan token yang diberikan.
-2. Buka chat bot tersebut dan kirim `/start`.
-3. Login sebagai admin, buka **Pengaturan → Notifikasi Telegram**, tempel token, lalu pilih **Cari Chat ID**.
-4. Pilih **Simpan & hubungkan**. Aplikasi memverifikasi bot dan mengirim pesan percobaan. Setelah terhubung, setiap pengingat baru akan mengirim pesan ke chat tersebut.
-5. Uji bentuk kabarnya dengan **Tes kirim pengingat**, atau teruskan pengingat tertentu kapan saja lewat ikon kirim pada daftar **Pengingat**.
+Notifikasi memakai gateway **Fonnte** (fonnte.com). Fonnte mengirim pesan lewat nomor WhatsApp yang kamu sambungkan sendiri, jadi tidak ada bot Telegram yang perlu dibuat.
 
-Token bot disimpan di database server dan tidak dikirim kembali ke browser. Koneksi keluar HTTPS dari hosting ke `api.telegram.org` harus diizinkan — **hosting gratis InfinityFree memblokirnya**, lihat [Troubleshooting Telegram](#troubleshooting-telegram). Jika fitur Cari Chat ID tidak menemukan pesan, kirim `/start` lagi dan coba ulangi.
+1. Daftar atau masuk ke **fonnte.com**, buka menu **Device**, lalu tambahkan perangkat baru.
+2. Sambungkan WhatsApp: buka detail perangkat dan **scan QR** dari HP (WhatsApp → **Perangkat tertaut** → **Tautkan perangkat**). Tunggu sampai status perangkat **connect**.
+3. Salin **token perangkat** (bukan token akun) dari menu Device.
+4. Login sebagai admin di website, buka **Pengaturan → Notifikasi WhatsApp (Fonnte)**. Tempel token dan isi **nomor WhatsApp tujuan** — boleh nomor sendiri, nomor anggota keluarga, atau ID grup seperti `6281234567890-1234567890@g.us`.
+5. Pilih **Simpan & hubungkan**. Aplikasi memeriksa token dan status perangkat, memvalidasi nomor tujuan, lalu mengirim pesan percobaan. Setelah tersimpan, setiap pengingat baru langsung dikirim ke WhatsApp.
+6. Uji bentuk kabarnya dengan **Tes kirim pengingat**, atau teruskan pengingat tertentu lewat ikon kirim pada daftar **Pengingat**.
+
+Catatan penting:
+
+- Token disimpan di database server dan tidak pernah dikirim kembali ke browser.
+- Setiap pesan memakai **kuota Fonnte**. Paket gratis punya batas kirim; sisa kuota terlihat di dashboard Fonnte dan pada tombol **Cek perangkat**.
+- Server hosting harus bisa membuat koneksi keluar HTTPS ke `api.fonnte.com`. Fitur ini tidak bisa diuji di preview `npm start` karena PHP WebAssembly di sana tidak punya akses internet.
+- Kalau tujuanmu sebuah grup, pastikan nomor pengirim sudah menjadi anggota grup tersebut.
+- Untuk fitur tanya-jawab dan rekap bulanan otomatis, lanjutkan ke bagian [Bot WhatsApp](#bot-whatsapp-tanya-laporan-lewat-chat).
+- Jika token dan nomor diisi langsung di `config.php`, kosongkan juga di sana saat ingin melepas koneksi. Tombol **Lepas koneksi** hanya menghapus pengaturan yang disimpan di database.
+
+### Update dari versi bot Telegram
+
+Versi ini mengganti notifikasi Telegram dengan WhatsApp (Fonnte) sekaligus menambah tabel `wa_contacts` untuk nomor yang boleh memakai bot. Aplikasi membuat tabel itu otomatis saat website dibuka, jadi tidak ada data yang hilang.
+
+> Catatan: tabel `wa_contacts` adalah satu-satunya perubahan struktur database. Kalau ingin membuatnya manual, impor `database/upgrade-mysql.sql` lewat phpMyAdmin.
+
+1. **Backup dulu:** login admin → **Pengaturan → Backup & database → Unduh backup .sql** (atau ekspor lewat phpMyAdmin).
+2. **Timpa file lama** di hosting dengan versi baru, minimal: `api.php`, `index.php`, `cron.php`, `includes/app.php`, `assets/app.js`, `config.example.php`, `README.md`, dan file di folder `database/`. **Tambahkan juga dua file baru** yang belum ada di versi Telegram: `includes/wa.php` dan `whatsapp.php`. Jangan menimpa `config.php` milikmu.
+3. `config.php` lama tetap bisa dipakai. Kalau dulu mengisi token Telegram di sana, ganti bagian tersebut menjadi:
+   ```php
+   'fonnte_token' => '',
+   'fonnte_target' => '',
+   ```
+   Keduanya boleh dikosongkan dan diisi dari menu Pengaturan.
+4. Buka website, login admin, lalu isi **Pengaturan → Notifikasi WhatsApp (Fonnte)** dengan token perangkat Fonnte dan nomor tujuan. Pengaturan bot Telegram lama tidak dibaca lagi dan akan dihapus otomatis saat koneksi WhatsApp disimpan atau dilepas.
+5. **Cron tidak perlu diubah.** Alamat `/cron.php?key=...` yang sudah berjalan otomatis mengirim pesan WhatsApp dengan koneksi baru. Pastikan tugas terjadwalnya tetap aktif.
+6. Muat ulang halaman dengan **Ctrl+F5** (atau kosongkan cache browser) agar tampilan Pengaturan yang baru dipakai.
+7. Uji **Tes kirim WhatsApp**, lalu **Tes kirim pengingat**. Kalau keduanya masuk, notifikasi dasar sudah selesai.
+8. Untuk fitur tanya-jawab, buka **Pengaturan → Bot WhatsApp**, salin **alamat webhook**, lalu tempel di dashboard Fonnte pada **Device → Edit → Webhook**. Tambahkan nomor yang boleh bertanya di panel yang sama.
+
+Catatan: jangan mengunggah `storage/rumahku.sqlite` dari preview lokal ke hosting MySQL; file itu hanya untuk preview.
 
 ### Notifikasi saat waktu pengingat tiba
 
-Pengingat tetap tersimpan dan terlihat di situs tanpa cron, tetapi pesan Telegram pada **tanggal/jam jatuh tempo** perlu pemicu terjadwal. Jika paket hosting menyediakan cron, jadwalkan permintaan ke:
+Pengingat tetap tersimpan dan terlihat di situs tanpa cron, tetapi pesan WhatsApp pada **tanggal/jam jatuh tempo** perlu pemicu terjadwal. Jika paket hosting menyediakan cron, jadwalkan permintaan ke:
 
 ```text
 https://DOMAIN-KAMU/cron.php?key=RAHASIA_CRON
 ```
 
-Atur `cron_secret` di `config.php` dengan nilai acak rahasia minimal 32 karakter; endpoint akan menolak permintaan jika nilainya kosong atau salah. Jadwalkan setiap 5–15 menit. Jika paket gratis tidak menyediakan cron, gunakan scheduler eksternal yang tepercaya dan jangan membagikan URL/rahasia tersebut — atau kirim manual lewat ikon kirim pada daftar **Pengingat** saat dibutuhkan. Pesan saat pengingat **dibuat** tetap dikirim langsung jika bot sudah terhubung.
+Atur `cron_secret` di `config.php` dengan nilai acak rahasia minimal 32 karakter; endpoint akan menolak permintaan jika nilainya kosong atau salah. Jadwalkan setiap 5–15 menit. Jika paket gratis tidak menyediakan cron, gunakan scheduler eksternal yang tepercaya dan jangan membagikan URL/rahasia tersebut — atau kirim manual lewat ikon kirim pada daftar **Pengingat** saat dibutuhkan. Pesan saat pengingat **dibuat** tetap dikirim langsung jika WhatsApp sudah terhubung.
 
 Pengingat **sepanjang hari** (tanpa jam) tersimpan pada 09:00 di tanggalnya, jadi cron yang jalan tiap 5–15 menit akan mengirim kabarnya pagi itu.
 
-### Troubleshooting Telegram
+### Troubleshooting WhatsApp (Fonnte)
 
-**Error `Could not resolve host: api.telegram.org`** (atau pesan “Server hosting tidak bisa menghubungi Telegram”)
+**Pesan “Server hosting tidak bisa menghubungi Fonnte” atau `Could not resolve host: api.fonnte.com`**
 
-Artinya **server hosting** tidak bisa menjangkau Telegram. Token dan Chat ID belum sempat diperiksa Telegram, jadi isiannya belum tentu salah. Aplikasi memanggil `https://api.telegram.org` dari server (bukan dari browser), sehingga hosting harus mengizinkan koneksi keluar ke sana.
+Artinya **server hosting** tidak bisa menjangkau Fonnte. Token belum sempat diperiksa, jadi isiannya belum tentu salah. Aplikasi memanggil `https://api.fonnte.com` dari server (bukan dari browser), sehingga hosting harus mengizinkan koneksi keluar ke alamat itu.
 
-- **InfinityFree paket gratis memblokir koneksi keluar ke Telegram** karena penyalahgunaan. Error ini muncul walau token benar dan tidak bisa diatasi dari kode aplikasi ([penjelasan di forum InfinityFree](https://forum.infinityfree.com/t/request-post/116465)). Admin InfinityFree menyebut paket premium kemungkinan besar tidak memblokirnya, tetapi pastikan dulu ke penyedia hosting.
-- Di hosting lain: pastikan koneksi keluar HTTPS (port 443) ke `api.telegram.org` diizinkan dan ekstensi PHP cURL/OpenSSL aktif. Jika masih gagal, minta bantuan penyedia hosting.
-- `npm start` (preview lokal) memakai PHP WebAssembly tanpa akses internet, jadi Telegram tidak bisa diuji di sana. Aplikasi menampilkan pesan penjelasan, bukan error server.
+- Pastikan koneksi keluar HTTPS (port 443) ke `api.fonnte.com` diizinkan dan ekstensi PHP cURL/OpenSSL aktif. Beberapa hosting gratis membatasi koneksi keluar; hubungi penyedia hosting bila masih gagal.
+- `npm start` (preview lokal) memakai PHP WebAssembly tanpa akses internet, jadi WhatsApp tidak bisa diuji di sana. Aplikasi menampilkan pesan penjelasan, bukan error server.
 
-**Pesan lain setelah koneksi berhasil**
+**Token valid, tetapi perangkat belum terhubung**
 
-- `Forbidden: bot can't initiate conversation with a user` → buka chat bot di Telegram, tekan **Start** (atau kirim `/start`), lalu coba lagi.
-- `Unauthorized` → token salah atau sudah dicabut; salin ulang dari @BotFather.
-- `Bad Request: chat not found` → Chat ID salah. Kirim `/start` ke bot lalu pakai tombol **Cari Chat ID**.
+Buka dashboard Fonnte → **Device** → scan QR ulang sampai statusnya **connect**. Token perangkat tetap sama; setelah tersambung, pilih **Cek perangkat** atau simpan ulang di Pengaturan.
 
-**Token pernah terkirim ke chat atau tempat umum?** Anggap sudah bocor. Buka @BotFather → `/revoke` → pilih bot, lalu simpan token baru di **Pengaturan → Notifikasi Telegram**.
+**`token invalid` atau `unknown user`**
+
+Pastikan yang dipakai adalah **token perangkat** dari menu Device, bukan token akun dari menu Setting. Salin ulang token tanpa spasi tambahan.
+
+**`target invalid` atau nomor tidak terdaftar**
+
+Gunakan format `08...` atau `62...` tanpa spasi/tanda hubung. Untuk grup, salin ID grup dari dashboard Fonnte (berakhiran `@g.us`) dan pastikan nomor pengirim sudah bergabung ke grup itu.
+
+**Kuota habis atau pesan tidak terkirim**
+
+Cek sisa kuota dan masa aktif perangkat di dashboard Fonnte. Setiap pesan memakai kuota, termasuk pesan percobaan dan kirim manual.
+
+**Token pernah terkirim ke chat atau tempat umum?**
+
+Anggap sudah bocor. Putuskan atau hapus perangkat tersebut di dashboard Fonnte, buat perangkat baru bila perlu, lalu simpan token barunya di **Pengaturan → Notifikasi WhatsApp (Fonnte)**.
+
+**Pesan percobaan masuk, tetapi cron tidak mengirim**
+
+Pastikan tugas terjadwal mengarah ke `/cron.php?key=...`, `cron_secret` di `config.php` minimal 32 karakter, dan cron berjalan setiap 5–15 menit. Cron memakai koneksi WhatsApp yang sama dengan tombol tes.
+
+## Bot WhatsApp: tanya laporan lewat chat
+
+Setelah notifikasi Fonnte tersambung, nomor WhatsApp yang didaftarkan bisa langsung bertanya ke bot.
+
+### 1. Hubungkan webhook di Fonnte
+
+1. Login admin → **Pengaturan → Bot WhatsApp**.
+2. Salin **alamat webhook** (berisi kunci rahasia `?key=...`).
+3. Buka dashboard Fonnte → **Device** → **Edit** → tempel alamat itu di kolom **Webhook** → simpan.
+4. Kirim pesan `halo` dari nomor yang sudah didaftarkan. Bot harus membalas menu bantuan.
+
+Alamat webhook hanya perlu dipasang sekali. Kalau kunci diganti lewat tombol **Ganti kunci webhook**, tempel alamat baru di Fonnte — alamat lama langsung tidak berlaku.
+
+### 2. Atur nomor yang boleh bertanya
+
+Di **Pengaturan → Bot WhatsApp → Nomor yang boleh bertanya**, tambahkan nomor keluarga beserta hak aksesnya:
+
+| Akses | Yang bisa dilihat |
+| --- | --- |
+| **Admin** | Semua laporan: uang masuk, uang keluar, saldo, target, kategori, dan transaksi terakhir. |
+| **Anggota** | Total pengeluaran, status target, kategori pengeluaran, dan pengeluaran terakhir. Uang masuk dan saldo tidak ditampilkan. |
+
+Nomor yang tidak terdaftar akan dibalas pesan berisi nomor mereka sendiri dan petunjuk agar admin menambahkannya. Nomor yang dinonaktifkan juga mendapat pemberitahuan. Untuk grup, daftarkan **ID grup** (berakhiran `@g.us`) — semua anggota grup itu bisa bertanya, dan balasannya dikirim ke grup. Di grup, bot hanya menjawab pertanyaan yang dikenali (misalnya `laporan` atau `target`), jadi obrolan sehari-hari tidak ikut dibalas.
+
+Tombol **Nonaktifkan** menghentikan akses tanpa menghapus nomor; **Hapus** mengeluarkannya dari daftar.
+
+### 3. Contoh pertanyaan
+
+| Ketik di WhatsApp | Jawaban bot |
+| --- | --- |
+| `laporan` | Rekap bulan berjalan: pemasukan, pengeluaran, sisa, target, kategori terbesar. |
+| `laporan bulan lalu` | Rekap bulan sebelumnya. |
+| `laporan oktober 2025` | Rekap bulan tertentu. |
+| `laporan tahun ini` / `laporan 2025` | Total setahun. |
+| `pengeluaran kategori tagihan bulan ini` | Total dan porsi kategori tertentu. |
+| `target bulan ini` | Target, terpakai, sisa, dan status sesuai target/minus. |
+| `5 pengeluaran terbesar bulan ini` | Daftar pengeluaran terbesar. |
+| `transaksi terakhir` | Lima catatan terbaru. |
+| `saldo` | Saldo keseluruhan (khusus admin). |
+| `bantuan` / `halo` | Menu contoh pertanyaan. |
+
+Bot hanya membaca pesan teks. Lampiran (foto/berkas) dibalas dengan petunjuk singkat.
+
+### 4. Laporan bulanan otomatis
+
+Di panel yang sama, aktifkan **Laporan bulanan otomatis**, pilih tanggal dan jam kirim (WIB), lalu simpan.
+
+- **Hari terakhir bulan berjalan** (default, jam 20:00) — mengirim rekap bulan yang sedang berjalan di hari terakhirnya, termasuk status target. Cocok untuk menjawab “bulan ini sesuai target atau minus?”.
+- **Tanggal 1–28** — mengirim rekap **bulan lalu** pada tanggal tersebut (misalnya tanggal 1 pagi).
+- Laporan dikirim ke **nomor utama** (target notifikasi) dan semua nomor terdaftar yang aktif. Nomor admin menerima laporan lengkap; nomor anggota hanya menerima pengeluaran dan status target.
+- Setiap periode hanya dikirim sekali. Kalau cron sempat mati, aplikasi mengirim susulan pada tanggal 1–3 untuk mode hari terakhir.
+- Tombol **Kirim laporan sekarang** bisa mengirim rekap bulan tertentu kapan saja tanpa menunggu jadwal. Hasilnya langsung muncul sebagai notifikasi di halaman, dan tidak mengubah jadwal otomatis berikutnya.
+
+Laporan bulanan memakai cron yang sama dengan pengingat:
+
+```text
+https://DOMAIN-KAMU/cron.php?key=RAHASIA_CRON
+```
+
+Pastikan tugas terjadwal berjalan setiap 5–15 menit dan `cron_secret` di `config.php` minimal 32 karakter. Tanpa cron, laporan otomatis tidak akan terkirim.
+
+### 5. Keamanan dan batasan bot
+
+- Alamat webhook adalah kunci rahasia. Jangan dibagikan; ganti kunci bila pernah bocor.
+- Bot hanya menjawab nomor/grup yang terdaftar dan aktif. Nomor asing dibatasi maksimal 10 balasan per jam agar kuota tidak habis.
+- Pesan dari perangkat bot sendiri dan kiriman webhook ganda diabaikan supaya tidak terjadi balasan berulang.
+- Setiap balasan memakai kuota Fonnte. Pertanyaan panjang atau berulang tetap memotong kuota, jadi arahkan anggota memakai contoh perintah di atas.
+- Fitur bot tidak bisa diuji di preview `npm start` karena PHP WebAssembly tidak punya akses internet. Gunakan hosting untuk mencoba.
+- Untuk memeriksa isi jawaban tanpa membuka WhatsApp, admin bisa membuka `whatsapp.php?key=...&debug=1` lewat POST dari alat uji; parameter `debug=1` hanya menambah teks jawaban pada respons.
+
+### Troubleshooting bot WhatsApp
+
+**Bot tidak membalas sama sekali**
+
+- Pastikan alamat webhook sudah ditempel di **Device → Edit → Webhook** pada Fonnte dan disimpan.
+- Pastikan perangkat Fonnte berstatus **connect**.
+- Pastikan nomor pengirim ada di **Nomor yang boleh bertanya** dan statusnya **Aktif**.
+- Kalau grup, pastikan **ID grup** (`...@g.us`) yang didaftarkan, bukan nomor anggota.
+- Kalau baru mengganti kunci webhook, tempel ulang alamat barunya di Fonnte.
+
+**Balasan masuk ke nomor yang salah**
+
+Bot membalas ke pengirim (chat pribadi) atau ke grup tempat pertanyaan dikirim. Periksa apakah pengirim memakai nomor yang terdaftar.
+
+**Laporan bulanan tidak terkirim**
+
+- Pastikan saklar **Laporan bulanan otomatis** aktif dan jadwalnya sudah lewat.
+- Pastikan cron berjalan setiap 5–15 menit dan `cron_secret` benar.
+- Lihat status **Terakhir dikirim otomatis** di panel; kalau kosong, cron belum pernah mengirim.
+- Cek kuota Fonnte dan status perangkat.
+
+**Bot menjawab “belum terdaftar” padahal nomor sudah ditambahkan**
+
+Pastikan format nomor sama dengan yang dikirim Fonnte (biasanya `62...`). Aplikasi menormalkan `08...`, `+62...`, dan spasi/tanda hubung, tetapi nomor yang berbeda (mis. nomor lama vs baru) tetap dianggap berbeda.
+
+**Bot tidak memahami pertanyaan**
+
+Gunakan kata kunci yang tersedia (`laporan`, `target`, `saldo`, `kategori ...`, `terbesar`, `terakhir`, `tahun ini`). Ketik `bantuan` untuk melihat contoh.
 
 ## Keamanan dan batasan
 
 - Password akun disimpan dalam bentuk hash, bukan teks biasa. API menggunakan prepared statement, session cookie `HttpOnly`/`SameSite`, dan perlindungan CSRF.
 - `storage/` berisi database SQLite lokal dan ditolak oleh `.htaccess`. Untuk hosting, gunakan MySQL dan jangan membuat database dapat diakses publik.
 - Akun anggota yang ditambahkan berbagi data rumah bersama. Penghapusan, pengeditan catatan, dan penggantian bukti gambar dibatasi pada pembuatnya atau admin rumah.
-- Tombol **kirim manual** pengingat boleh dipakai semua anggota yang login, dan pesannya masuk ke chat Telegram rumah yang sama — jadi jangan dipakai untuk mengirim berkali-kali tanpa perlu.
+- Tombol **kirim manual** pengingat boleh dipakai semua anggota yang login, dan pesannya masuk ke WhatsApp rumah yang sama — jadi jangan dipakai untuk mengirim berkali-kali tanpa perlu.
 - Satu target pengeluaran disimpan untuk tiap bulan. Target mengukur **pengeluaran yang sudah dicatat**, jadi hasilnya bergantung pada kelengkapan input transaksi.
 - Gambar bukti disimpan di dalam database (tabel `attachments`) dalam bentuk JPEG terkompresi, biasanya puluhan sampai ratusan KB per gambar. Karena itu jaga ukurannya: kuota database hosting gratis umumnya terbatas, dan menghapus bukti yang tidak diperlukan akan mengembalikan ruang.
 - Bukti gambar bisa dilihat semua anggota rumah yang login (seperti catatan lain). Jangan simpan foto yang tidak ingin dilihat anggota lain.
+- Nomor WhatsApp yang didaftarkan bisa membaca ringkasan keuangan lewat chat. Berikan akses **Admin** hanya kepada orang yang memang boleh melihat uang masuk dan saldo, dan perlakukan alamat webhook sebagai kata sandi.
 - Ini alat pencatatan pribadi, bukan aplikasi bank atau pembukuan pajak. Selalu simpan backup.
 
 ## Ide lanjutan yang cocok untuk website pribadi
