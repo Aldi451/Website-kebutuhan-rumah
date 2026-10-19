@@ -1,7 +1,7 @@
 <?php
 /**
  * Salin file ini menjadi config.php di folder aplikasi, lalu isi detail database.
- * Jangan unggah config.php ke Git atau membagikan token bot kepada orang lain.
+ * Jangan unggah config.php ke Git atau membagikan token Fonnte kepada orang lain.
  *
  * Tabel database dibuat & diperbarui otomatis saat aplikasi pertama dibuka
  * (lihat includes/app.php). Kalau ingin membuatnya manual lewat phpMyAdmin,
@@ -17,9 +17,10 @@ return [
     // Zona waktu untuk tanggal transaksi dan reminder.
     'timezone' => 'Asia/Jakarta',
 
-    // Opsional. Dapat dikosongkan dan diatur dari menu Pengaturan setelah login admin.
-    'telegram_bot_token' => '',
-    'telegram_chat_id' => '',
+    // Opsional. Notifikasi WhatsApp lewat Fonnte (https://fonnte.com).
+    // Dapat dikosongkan dan diatur dari menu Pengaturan setelah login admin.
+    'fonnte_token' => '',
+    'fonnte_target' => '',
 
     // Rahasia acak minimal 32 karakter untuk cron.php.
     // Contoh: hasilkan dengan `php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"`

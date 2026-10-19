@@ -6,7 +6,7 @@ Berisi rancangan database (SQL) supaya datamu bisa dicek, dicadangkan, dan dipin
 | --- | --- |
 | `schema-mysql.sql` | Struktur lengkap untuk **MySQL / MariaDB** (hosting seperti InfinityFree atau cPanel). Impor lewat phpMyAdmin bila ingin membuat tabel manual. |
 | `schema-sqlite.sql` | Struktur lengkap untuk **SQLite**, dipakai preview lokal (`storage/rumahku.sqlite`) dan alat seperti DB Browser for SQLite. |
-| `upgrade-mysql.sql` | Pembaruan untuk database lama: menambah tabel `attachments` (bukti gambar) dan kolom pengingat yang sempat belum ada. Aman dijalankan berulang. |
+| `upgrade-mysql.sql` | Pembaruan untuk database lama: menambah tabel `attachments` (bukti gambar), tabel `wa_contacts` (nomor bot WhatsApp), dan kolom pengingat yang sempat belum ada. Aman dijalankan berulang. |
 
 ## Apakah harus dijalankan manual?
 

@@ -227,7 +227,7 @@
     }
   }
 
-  // Menjalankan aksi tombol (kirim Telegram, dsb.) dengan status sibuk + penanganan galat yang seragam.
+  // Menjalankan aksi tombol (kirim WhatsApp, dsb.) dengan status sibuk + penanganan galat yang seragam.
   async function withBusyButton(button, task, busyText = '') {
     if (!button) { await task(); return; }
     const original = button.innerHTML;
@@ -626,7 +626,7 @@
         <div class="import-instructions"><p>${instructions}</p><p>Baris pertama harus berisi judul kolom. Workbook dibaca dari sheet pertama, maksimal 500 baris per file; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
         <button class="btn btn-secondary import-template-button" type="button" data-action="download-import-template" data-import-type="${type}">${icon('receipt')} Unduh template CSV</button>
         <label class="import-upload-box" for="import-file"><input class="import-file-input" id="import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-import-file><span class="import-upload-mark">${icon('upload')}</span><span class="import-upload-copy"><strong>Pilih file Excel atau CSV</strong><small data-import-file-name>Format .xlsx atau .csv · maksimal 10 MB</small></span></label>
-        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; unggah file yang sama lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim Telegram satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
+        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; unggah file yang sama lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim WhatsApp satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
         <p class="error-text import-error" data-import-error hidden></p>
         <div class="import-preview" data-import-preview hidden></div>
         <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="button" data-action="confirm-import" disabled>Import</button></div>
@@ -1413,7 +1413,7 @@
         <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${reminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon coral">${icon('check')}</span><span><strong>${done}</strong><span>Selesai · ${total} total</span></span></article>
       </div>
-      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Agenda yang dibuat keluarga · bisa diubah, dikirim ulang ke Telegram, atau ditandai selesai</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
+      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Agenda yang dibuat keluarga · bisa diubah, dikirim ulang ke WhatsApp, atau ditandai selesai</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
   }
 
   function reminderItem(item) {
@@ -1429,7 +1429,7 @@
     const canManage = canManageEntity('reminder', item);
     const proof = proofButton('reminder', item, { compact: true, alwaysShow: canManage });
     const thumb = item.attachment ? `<button class="reminder-thumb" type="button" data-action="open-proof" data-entity="reminder" data-id="${Number(item.id)}" aria-label="Lihat bukti gambar"><img src="${escapeHtml(item.attachment.url)}" alt="Bukti ${escapeHtml(item.title)}" loading="lazy"></button>` : '';
-    const sendButton = `<button class="send-button" type="button" data-action="send-reminder" data-id="${Number(item.id)}" aria-label="Kirim pengingat ini ke Telegram sekarang" title="Kirim ke Telegram sekarang">${icon('send')}</button>`;
+    const sendButton = `<button class="send-button" type="button" data-action="send-reminder" data-id="${Number(item.id)}" aria-label="Kirim pengingat ini ke WhatsApp sekarang" title="Kirim ke WhatsApp sekarang">${icon('send')}</button>`;
     const editButton = canManage ? `<button class="edit-button" type="button" data-action="edit-reminder" data-id="${Number(item.id)}" aria-label="Ubah pengingat" title="Ubah pengingat">${icon('edit')}</button>` : '';
     return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${sendButton}${editButton}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
   }
@@ -1442,7 +1442,7 @@
   }
 
   function settingsMarkup() {
-    const telegram = state.settings?.telegram || { connected: false, chat_id: '', token_hint: '' };
+    const whatsapp = state.settings?.whatsapp || { connected: false, target: '', token_hint: '' };
     const isAdmin = state.user?.role === 'admin';
     const database = state.settings?.database || null;
     const backupPanel = database ? `
@@ -1457,13 +1457,35 @@
           <div class="settings-actions"><a class="btn" href="/api.php?action=backup/download" download>${icon('download')} Unduh backup .sql</a></div>
           <div class="security-tip"><strong>Catatan:</strong> file backup memuat seluruh catatan keuangan, pengingat, dan gambar bukti. Simpan di tempat aman dan jangan dibagikan. Struktur tabel untuk phpMyAdmin juga tersedia di folder <code>database/</code>.</div>
         </section>` : '';
-    const telegramPanel = isAdmin ? `
-        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? `Bot tersambung${telegram.token_hint ? ` · ${escapeHtml(telegram.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="telegram-save" class="form-grid"><div class="field full-span"><label for="telegram-token">Token bot</label><input class="input" id="telegram-token" name="token" type="password" autocomplete="off" placeholder="${telegram.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Contoh: 123456789:AA...'}"></div><div class="field full-span"><label for="telegram-chat-id">Chat ID</label><input class="input" id="telegram-chat-id" name="chat_id" type="text" inputmode="numeric" value="${escapeHtml(telegram.chat_id || '')}" placeholder="Kirim /start ke bot, lalu cari Chat ID"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${telegram.connected ? `<button class="btn btn-secondary" type="button" data-action="telegram-test">${icon('send')} Tes bot</button><button class="btn btn-secondary" type="button" data-action="reminder-test">${icon('bell')} Tes kirim pengingat</button><button class="btn btn-danger" type="button" data-action="telegram-disconnect">Lepas bot</button>` : ''}<button class="btn btn-secondary" type="button" data-action="telegram-discover">Cari Chat ID</button></div></div></form><ol class="steps-list"><li>Buat bot baru di <strong>@BotFather</strong> Telegram, lalu salin token-nya.</li><li>Buka chat bot buatanmu, kirim <code>/start</code>, masukkan token di atas, lalu pilih <strong>Cari Chat ID</strong>.</li><li>Simpan koneksi. Pesan percobaan dan kabar pengingat akan dikirim ke Telegram.</li><li>Uji bentuk kabarnya dengan <strong>Tes kirim pengingat</strong>. Untuk pengingat tertentu, pakai ikon kirim pada daftar <strong>Pengingat</strong> supaya langsung diteruskan ke Telegram.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar otomatis saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README. Kalau hosting belum menyediakan cron, kirim manual dari daftar pengingat.</div></section>` : `
-        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi Telegram</h2><p class="settings-description">Status koneksi bot untuk pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${telegram.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${telegram.connected ? 'Bot rumah sudah tersambung.' : 'Bot Telegram belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan bot dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p></section>`;
-    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke Telegram' : ''}.</p></div></div>
+    const whatsappPanel = isAdmin ? `
+        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi WhatsApp (Fonnte)</h2><p class="settings-description">Kabar langsung saat pengingat dibuat.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${whatsapp.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${whatsapp.connected ? `Perangkat tersambung${whatsapp.target ? ` · ${escapeHtml(whatsapp.target)}` : ''}${whatsapp.token_hint ? ` · token ${escapeHtml(whatsapp.token_hint)}` : ''}` : 'Belum tersambung · pengingat tetap disimpan di website'}</span></div><form data-form="whatsapp-save" class="form-grid"><div class="field full-span"><label for="wa-token">Token perangkat Fonnte</label><input class="input" id="wa-token" name="token" type="password" autocomplete="off" placeholder="${whatsapp.connected ? 'Kosongkan untuk memakai token tersimpan' : 'Salin dari menu Device di dashboard Fonnte'}"></div><div class="field full-span"><label for="wa-target">Nomor WhatsApp tujuan</label><input class="input" id="wa-target" name="target" type="text" inputmode="tel" value="${escapeHtml(whatsapp.target || '')}" placeholder="Contoh: 08123456789 atau 6281234567890-123@g.us (grup)"></div><p class="form-note full-span">Token hanya disimpan di server dan tidak pernah dikirim kembali ke browser. Nomor tujuan boleh nomor pribadi atau ID grup WhatsApp.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><div class="settings-actions"><button class="btn" type="submit">${icon('check')} Simpan & hubungkan</button>${whatsapp.connected ? `<button class="btn btn-secondary" type="button" data-action="whatsapp-test">${icon('send')} Tes kirim WhatsApp</button><button class="btn btn-secondary" type="button" data-action="reminder-test">${icon('bell')} Tes kirim pengingat</button><button class="btn btn-danger" type="button" data-action="whatsapp-disconnect">Lepas koneksi</button>` : ''}<button class="btn btn-secondary" type="button" data-action="whatsapp-device">Cek perangkat</button></div></div></form><ol class="steps-list"><li>Daftar atau masuk ke <strong>fonnte.com</strong>, buat perangkat (device), lalu sambungkan WhatsApp lewat scan QR di dashboard Fonnte.</li><li>Pastikan perangkat berstatus <strong>connect</strong>, lalu salin <strong>token perangkat</strong> dari menu Device.</li><li>Tempel token dan nomor WhatsApp tujuan di atas, lalu pilih <strong>Simpan & hubungkan</strong>. Aplikasi memeriksa perangkat dan mengirim pesan percobaan.</li><li>Uji bentuk kabarnya dengan <strong>Tes kirim pengingat</strong>. Untuk pengingat tertentu, pakai ikon kirim pada daftar <strong>Pengingat</strong> supaya langsung diteruskan ke WhatsApp.</li></ol><div class="security-tip"><strong>Notifikasi tepat waktu:</strong> untuk kabar otomatis saat tanggal/jam jatuh tempo, aktifkan tugas terjadwal ke <code>/cron.php?key=...</code> setiap 5–15 menit. Panduannya ada di README. Kalau hosting belum menyediakan cron, kirim manual dari daftar pengingat. Setiap pesan memakai kuota Fonnte.</div></section>` : `
+        <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Notifikasi WhatsApp (Fonnte)</h2><p class="settings-description">Status koneksi pengingat rumah.</p></div><span class="target-glyph">${icon('send')}</span></div><div class="connection-banner${whatsapp.connected ? '' : ' disconnected'}"><i class="connection-led"></i><span>${whatsapp.connected ? 'Notifikasi WhatsApp rumah sudah tersambung.' : 'Notifikasi WhatsApp belum tersambung.'}</span></div><p class="settings-description" style="margin-top:13px">Pengaturan WhatsApp dikelola admin rumah. Kamu tetap bisa membuat pengingat; semuanya terlihat di daftar bersama.</p><p class="settings-description" style="margin-top:7px">Fitur tanya laporan lewat WhatsApp hanya tersedia untuk nomor yang didaftarkan admin di menu <strong>Bot WhatsApp</strong>.</p></section>`;
+    const whatsappBot = state.settings?.whatsapp_bot || null;
+    const botContacts = whatsappBot?.contacts || [];
+    const botMonthly = whatsappBot?.monthly || { enabled: false, day: 'last', time: '20:00', last_key: '', last_label: '', last_at: '' };
+    const botContactRows = botContacts.map((contact) => `<tr><td><span class="table-title">${escapeHtml(contact.name || 'Tanpa nama')}</span><span class="table-subtitle">${escapeHtml(contact.phone)}</span></td><td><span class="role-pill${contact.access === 'admin' ? ' admin' : ''}">${contact.access === 'admin' ? 'Admin' : 'Anggota'}</span></td><td><span class="status-pill${contact.active ? '' : ' status-done'}">${contact.active ? 'Aktif' : 'Nonaktif'}</span></td><td class="table-date">${contact.last_message_at ? escapeHtml(contact.last_message_at) : '—'}</td><td><button class="btn btn-secondary btn-small" type="button" data-action="wa-contact-toggle" data-id="${Number(contact.id)}">${contact.active ? 'Nonaktifkan' : 'Aktifkan'}</button> <button class="btn btn-danger btn-small" type="button" data-action="wa-contact-delete" data-id="${Number(contact.id)}">Hapus</button></td></tr>`).join('');
+    const botDayOptions = ['last', ...Array.from({ length: 28 }, (_, index) => String(index + 1))].map((day) => `<option value="${day}"${String(botMonthly.day) === day ? ' selected' : ''}>${day === 'last' ? 'Hari terakhir bulan berjalan' : `Tanggal ${day} (rekap bulan lalu)`}</option>`).join('');
+    const botPanel = isAdmin && whatsappBot ? `
+        <section class="card settings-card settings-bot" style="grid-column:1/-1"><div class="card-head"><div><h2 class="card-title">Bot WhatsApp: tanya laporan &amp; rekap otomatis</h2><p class="settings-description">Balas pertanyaan laporan lewat WhatsApp dan kirim rekap di akhir bulan.</p></div><span class="target-glyph">${icon('spark')}</span></div>
+          <div class="security-tip"><strong>Langkah menghubungkan:</strong> buka dashboard Fonnte → <strong>Device</strong> → <strong>Edit</strong> → tempel alamat di bawah pada kolom <strong>Webhook</strong> → simpan. Setelah itu kirim pesan <code>laporan</code> dari nomor yang terdaftar.</div>
+          <div class="field full-span"><label for="wa-webhook-url">Alamat webhook (rahasia)</label><input class="input" id="wa-webhook-url" type="text" readonly value="${escapeHtml(whatsappBot.webhook_url)}"><p class="form-note">Jangan bagikan alamat ini. Siapa pun yang memilikinya bisa memicu bot. Ganti kuncinya kapan saja lewat tombol di samping.</p></div>
+          <div class="settings-actions"><button class="btn btn-secondary" type="button" data-action="wa-webhook-copy">${icon('download')} Salin alamat webhook</button><button class="btn btn-danger" type="button" data-action="wa-webhook-reset">Ganti kunci webhook</button></div>
+          <div class="card-head" style="margin-top:22px"><div><h3 class="card-title">Nomor yang boleh bertanya</h3><p class="settings-description">Hanya nomor di daftar ini yang dilayani bot. Nomor lain akan diarahkan untuk menghubungi admin.</p></div></div>
+          <form data-form="wa-contact-save" class="form-grid"><div class="field"><label for="wa-contact-phone">Nomor WhatsApp</label><input class="input" id="wa-contact-phone" name="phone" type="tel" placeholder="08123456789" required></div><div class="field"><label for="wa-contact-name">Nama pemilik</label><input class="input" id="wa-contact-name" name="name" type="text" maxlength="80" placeholder="Contoh: Bu Rina"></div><div class="field full-span"><label for="wa-contact-access">Hak akses</label><select class="select" id="wa-contact-access" name="access"><option value="member">Anggota — hanya pengeluaran &amp; target</option><option value="admin">Admin — semua laporan termasuk saldo &amp; uang masuk</option></select></div><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn" type="submit">${icon('plus')} Tambah nomor</button></div></form>
+          <div class="table-wrap" style="margin-top:14px"><table class="data-table"><thead><tr><th>Nomor</th><th>Akses</th><th>Status</th><th>Pesan terakhir</th><th></th></tr></thead><tbody>${botContactRows || '<tr><td colspan="5">Belum ada nomor yang didaftarkan. Tambahkan nomor sendiri lebih dulu supaya bisa bertanya ke bot.</td></tr>'}</tbody></table></div>
+          <div class="card-head" style="margin-top:22px"><div><h3 class="card-title">Laporan bulanan otomatis</h3><p class="settings-description">Ringkasan pemasukan, pengeluaran, dan status target dikirim ke nomor utama serta semua nomor terdaftar.</p></div></div>
+          <form data-form="wa-monthly-save" class="form-grid"><div class="field full-span"><label style="display:flex;align-items:center;gap:8px;font-weight:500"><input type="checkbox" name="enabled" value="1"${botMonthly.enabled ? ' checked' : ''}> Aktifkan laporan bulanan otomatis</label></div><div class="field"><label for="wa-monthly-day">Tanggal kirim</label><select class="select" id="wa-monthly-day" name="day">${botDayOptions}</select></div><div class="field"><label for="wa-monthly-time">Jam kirim (WIB)</label><input class="input" id="wa-monthly-time" name="time" type="time" value="${escapeHtml(botMonthly.time || '20:00')}" required></div><p class="form-note full-span">“Hari terakhir bulan berjalan” mengirim rekap bulan yang sedang berjalan di akhir bulan. Pilihan tanggal 1–28 mengirim rekap bulan lalu pada tanggal tersebut.</p><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn" type="submit">Simpan jadwal</button></div></form>
+          <p class="form-note">${botMonthly.last_key ? `Terakhir dikirim otomatis: ${escapeHtml(botMonthly.last_label || botMonthly.last_key)}${botMonthly.last_at ? ` pukul ${escapeHtml(String(botMonthly.last_at).slice(11, 16))}` : ''}.` : 'Laporan otomatis belum pernah terkirim. Pastikan cron berjalan.'}</p>
+          <form data-form="wa-report-send" class="form-grid"><div class="field"><label for="wa-report-month">Kirim laporan sekarang</label><input class="input" id="wa-report-month" name="month" type="month" value="${escapeHtml(currentMonth())}" required></div><div class="field full-span"><button class="btn btn-secondary" type="submit">${icon('send')} Kirim laporan ke WhatsApp</button></div></form>
+          <div class="card-head" style="margin-top:22px"><div><h3 class="card-title">Contoh pertanyaan yang bisa dikirim</h3><p class="settings-description">Ketik langsung di WhatsApp, tanpa tanda kutip.</p></div></div>
+          <ol class="steps-list"><li><code>laporan</code> — rekap bulan ini.</li><li><code>laporan bulan lalu</code> atau <code>laporan oktober 2025</code>.</li><li><code>pengeluaran kategori tagihan bulan ini</code>.</li><li><code>target bulan ini</code> — cek sudah sesuai target atau minus.</li><li><code>5 pengeluaran terbesar bulan ini</code> dan <code>transaksi terakhir</code>.</li><li><code>saldo</code> — hanya untuk nomor dengan akses admin.</li></ol>
+          <div class="security-tip"><strong>Keamanan:</strong> bot hanya menjawab nomor terdaftar dan tidak pernah menampilkan token. Akses <strong>Admin</strong> memperlihatkan uang masuk dan saldo; pilih <strong>Anggota</strong> bila cukup pengeluaran dan target. Untuk grup, daftarkan ID grup (berakhiran <code>@g.us</code>) — semua anggota grup itu bisa bertanya dengan hak akses yang dipilih untuk grup; sebaiknya pilih <strong>Anggota</strong>.</div>
+        </section>` : '';
+    return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke WhatsApp' : ''}.</p></div></div>
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Keamanan akun</h2><p class="settings-description">Sedang masuk sebagai <strong>${escapeHtml(state.user?.name)}</strong> (@${escapeHtml(state.user?.username)}).</p></div><span class="target-glyph">${icon('lock')}</span></div><form data-form="password-change" class="form-grid"><div class="field full-span"><label for="current-password">Kata sandi saat ini</label><input class="input" id="current-password" name="current_password" type="password" autocomplete="current-password" required></div><div class="field full-span"><label for="new-password">Kata sandi baru</label><input class="input" id="new-password" name="new_password" type="password" minlength="8" autocomplete="new-password" placeholder="Minimal 8 karakter" required></div><div class="field full-span"><label for="confirm-password">Ulangi kata sandi baru</label><input class="input" id="confirm-password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></div><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn btn-soft" type="submit">${icon('shield')} Ganti kata sandi</button></div></form><div class="security-tip"><strong>Saran:</strong> gunakan kata sandi unik dan jangan membagikan akun admin. Kata sandi disimpan dalam bentuk hash.</div></section>
-        ${telegramPanel}
+        ${whatsappPanel}
+        ${botPanel}
         ${backupPanel}
       </div>`;
   }
@@ -1506,7 +1528,7 @@
       .map((name) => `<option value="${escapeHtml(name)}"${name === currentCategory ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
     openModal(
       editing ? 'Ubah pengingat' : 'Buat pengingat',
-      editing ? 'Geser tanggal/jamnya atau perbaiki isinya; jadwal Telegram mengikuti waktu yang baru.' : 'Tulis agenda rumah, pilih tanggalnya, lalu tambahkan jam kalau memang perlu.',
+      editing ? 'Geser tanggal/jamnya atau perbaiki isinya; jadwal WhatsApp mengikuti waktu yang baru.' : 'Tulis agenda rumah, pilih tanggalnya, lalu tambahkan jam kalau memang perlu.',
       `
       <form class="modal-body" data-form="reminder"${editing ? ' data-mode="edit"' : ''}><div class="form-grid">
         ${editing ? `<input type="hidden" name="id" value="${Number(record.id)}">` : ''}
@@ -1519,7 +1541,7 @@
         <div class="field full-span"><label for="reminder-category">Kategori</label><select class="select" id="reminder-category" name="category">${categoryOptions}</select></div>
         <div class="field full-span"><label for="reminder-note">Catatan tambahan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="reminder-note" name="note" maxlength="500" placeholder="Contoh: Bengkel langganan dekat rumah">${escapeHtml(editing ? record.note || '' : '')}</textarea></div>
         ${receiptFieldMarkup('reminder-receipt', editing ? record.attachment : null)}
-      </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika bot Telegram terhubung, bot juga menerima notifikasi.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} ${editing ? 'Simpan perubahan' : 'Simpan pengingat'}</button></div></form>`);
+      </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika notifikasi WhatsApp terhubung, kabarnya juga dikirim ke WhatsApp.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} ${editing ? 'Simpan perubahan' : 'Simpan pengingat'}</button></div></form>`);
     syncReminderTimeHint();
   }
 
@@ -1596,7 +1618,7 @@
     } catch (error) { showToast(error.message, 'error'); }
   }
 
-  // Meneruskan satu pengingat ke Telegram sekarang: untuk menguji notifikasi
+  // Meneruskan satu pengingat ke WhatsApp sekarang: untuk menguji notifikasi
   // atau menyampaikan pengingat yang cron-nya belum sempat jalan.
   async function sendReminderNow(button) {
     await withBusyButton(button, async () => {
@@ -1682,28 +1704,63 @@
     else if (action === 'delete-reminder') deleteReminder(actionButton.dataset.id);
     else if (action === 'toggle-reminder') toggleReminder(actionButton.dataset.id);
     else if (action === 'reset-member-password') openResetPasswordModal(actionButton.dataset.id, actionButton.dataset.name || 'anggota');
-    else if (action === 'telegram-test') {
+    else if (action === 'whatsapp-test') {
       actionButton.disabled = true;
-      try { const result = await api('telegram/test', {}); showToast(result.message); }
+      try { const result = await api('whatsapp/test', {}); showToast(result.message); }
       catch (error) { showToast(error.message, 'error'); }
       finally { actionButton.disabled = false; }
-    } else if (action === 'telegram-discover') {
-      const token = document.getElementById('telegram-token')?.value.trim();
-      if (!token) { showToast('Masukkan token bot dahulu, lalu pilih Cari Chat ID.', 'error'); return; }
+    } else if (action === 'whatsapp-device') {
+      const token = document.getElementById('wa-token')?.value.trim() || '';
+      if (!token && !state.settings?.whatsapp?.connected) {
+        showToast('Masukkan token perangkat Fonnte dahulu, lalu pilih Cek perangkat.', 'error');
+        return;
+      }
       actionButton.disabled = true;
       const label = actionButton.textContent;
-      actionButton.textContent = 'Mencari…';
+      actionButton.textContent = 'Memeriksa…';
       try {
-        const result = await api('telegram/discover', { token });
-        const chatInput = document.getElementById('telegram-chat-id');
-        if (chatInput) chatInput.value = result.chat_id;
-        showToast(`Chat ID ditemukan${result.chat_name ? ` · ${result.chat_name}` : ''}.`);
+        const result = await api('whatsapp/device', { token });
+        showToast(result.message, result.connected ? 'success' : 'error');
       } catch (error) { showToast(error.message, 'error'); }
       finally { actionButton.disabled = false; actionButton.textContent = label; }
-    } else if (action === 'telegram-disconnect') {
-      if (!window.confirm('Lepas koneksi bot Telegram? Pengingat tetap tersimpan di website.')) return;
+    } else if (action === 'wa-webhook-copy') {
+      const input = document.getElementById('wa-webhook-url');
+      const url = input?.value || state.settings?.whatsapp_bot?.webhook_url || '';
+      if (!url) { showToast('Alamat webhook belum tersedia.', 'error'); return; }
       try {
-        const result = await api('telegram/disconnect', {});
+        await navigator.clipboard.writeText(url);
+        showToast('Alamat webhook disalin. Tempel di dashboard Fonnte pada kolom Webhook.');
+      } catch {
+        input?.select();
+        showToast('Salin manual: tekan Ctrl+C pada kolom alamat webhook.', 'error');
+      }
+    } else if (action === 'wa-webhook-reset') {
+      if (!window.confirm('Ganti kunci webhook? Alamat lama tidak berlaku lagi dan harus diperbarui di dashboard Fonnte.')) return;
+      try {
+        const result = await api('whatsapp/webhook/reset', {});
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
+      } catch (error) { showToast(error.message, 'error'); }
+    } else if (action === 'wa-contact-toggle') {
+      try {
+        const result = await api('whatsapp/contact/toggle', { id: Number(actionButton.dataset.id) });
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
+      } catch (error) { showToast(error.message, 'error'); }
+    } else if (action === 'wa-contact-delete') {
+      if (!window.confirm('Hapus nomor ini dari daftar bot? Nomor tersebut tidak bisa lagi bertanya lewat WhatsApp.')) return;
+      try {
+        const result = await api('whatsapp/contact/delete', { id: Number(actionButton.dataset.id) });
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
+      } catch (error) { showToast(error.message, 'error'); }
+    } else if (action === 'whatsapp-disconnect') {
+      if (!window.confirm('Lepas koneksi WhatsApp (Fonnte)? Pengingat tetap tersimpan di website.')) return;
+      try {
+        const result = await api('whatsapp/disconnect', {});
         showToast(result.message);
         state.settings = null;
         await refreshPage(true);
@@ -1787,7 +1844,7 @@
         closeModal();
         showToast(recordId
           ? result.message + receiptNote
-          : `${result.message}${result.telegram_sent ? ' Kabarnya juga dikirim ke Telegram.' : ' Telegram belum terhubung atau pesan belum terkirim.'}${receiptNote}`);
+          : `${result.message}${result.whatsapp_sent ? ' Kabarnya juga dikirim ke WhatsApp.' : ' WhatsApp belum terhubung atau pesan belum terkirim.'}${receiptNote}`);
         state.dashboard = null;
         state.reminders = null;
         await refreshPage(true);
@@ -1814,11 +1871,25 @@
         const result = await api('password/change', { current_password: data.current_password, new_password: data.new_password });
         form.reset();
         showToast(result.message);
-      } else if (kind === 'telegram-save') {
-        const result = await api('telegram/save', { token: data.token, chat_id: data.chat_id });
-        showToast(result.message, result.telegram_sent ? 'success' : 'error');
+      } else if (kind === 'whatsapp-save') {
+        const result = await api('whatsapp/save', { token: data.token, target: data.target });
+        showToast(result.message, result.whatsapp_sent ? 'success' : 'error');
         state.settings = null;
         await refreshPage(true);
+      } else if (kind === 'wa-contact-save') {
+        const result = await api('whatsapp/contact/save', { phone: data.phone, name: data.name || '', access: data.access || 'member' });
+        showToast(result.message);
+        form.reset();
+        state.settings = null;
+        await refreshPage(true);
+      } else if (kind === 'wa-monthly-save') {
+        const result = await api('whatsapp/monthly/save', { enabled: data.enabled === '1' ? 1 : 0, day: data.day || 'last', time: data.time || '20:00' });
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
+      } else if (kind === 'wa-report-send') {
+        const result = await api('whatsapp/report/send', { month: data.month });
+        showToast(result.message);
       }
     } catch (error) {
       showFormError(form, error.message);

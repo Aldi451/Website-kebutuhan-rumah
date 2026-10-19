@@ -29,7 +29,7 @@ try {
     foreach ($reminders as $reminder) {
         // Bentuk pesannya sama dengan kabar yang dikirim saat pengingat dibuat/dikirim manual.
         $message = app_reminder_message($reminder, '⏰ Pengingat rumah • waktunya dicek');
-        $result = app_send_telegram($message);
+        $result = app_send_whatsapp($message);
         if ($result['ok'] ?? false) {
             $update = $pdo->prepare('UPDATE reminders SET due_notified_at = :notified WHERE id = :id AND due_notified_at IS NULL');
             $update->execute([':notified' => $now, ':id' => (int) $reminder['id']]);
@@ -39,7 +39,24 @@ try {
         }
     }
 
-    echo "Pemeriksaan pengingat selesai. Terkirim: {$sent}; belum terkirim: {$failed}.\n";
+    // Laporan bulanan otomatis (diatur di Pengaturan → Bot WhatsApp).
+    $monthlyNote = '';
+    try {
+        $dueReport = app_wa_monthly_due_period();
+        if ($dueReport !== null && (string) app_setting('wa_monthly_last_key', '') !== $dueReport['key']) {
+            $report = app_wa_send_monthly_report($dueReport['key']);
+            $monthlyNote = ' Laporan bulanan ' . $dueReport['label'] . ': ' . (int) $report['sent']
+                . ' terkirim, ' . (int) $report['failed'] . ' gagal.';
+        }
+    } catch (Throwable $error) {
+        error_log('[Laporan bulanan] ' . $error->getMessage());
+        $monthlyNote = ' Laporan bulanan gagal diproses.';
+        if ((string) ($_GET['debug'] ?? '') === '1') {
+            $monthlyNote .= ' (' . $error->getMessage() . ')';
+        }
+    }
+
+    echo "Pemeriksaan pengingat selesai. Terkirim: {$sent}; belum terkirim: {$failed}.{$monthlyNote}\n";
 } catch (Throwable $error) {
     error_log('[Pengingat cron] ' . $error->getMessage());
     http_response_code(500);

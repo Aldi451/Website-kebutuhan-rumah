@@ -75,6 +75,17 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at DATETIME NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS wa_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone VARCHAR(60) NOT NULL UNIQUE,
+    name VARCHAR(80) NOT NULL DEFAULT '',
+    access VARCHAR(10) NOT NULL DEFAULT 'member',
+    active INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER NULL,
+    last_message_at DATETIME NULL,
+    created_at DATETIME NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS attachment_lookup ON attachments (entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS transaction_date_lookup ON transactions (transaction_date);
 CREATE INDEX IF NOT EXISTS transaction_user_lookup ON transactions (user_id);
