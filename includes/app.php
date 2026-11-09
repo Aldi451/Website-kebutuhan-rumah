@@ -245,7 +245,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
     app_ensure_column($pdo, $mysql, 'reminders', 'completed_at', 'DATETIME NULL');
     app_ensure_column($pdo, $mysql, 'reminders', 'due_notified_at', 'DATETIME NULL');
     app_ensure_column($pdo, $mysql, 'reminders', 'has_time', $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1');
-    app_ensure_column($pdo, $mysql, 'users', 'phone', \"VARCHAR(60) NOT NULL DEFAULT ''\");
+    app_ensure_column($pdo, $mysql, 'users', 'phone', "VARCHAR(60) NOT NULL DEFAULT ''");
 
     $adminCount = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
     if ($adminCount === 0) {
