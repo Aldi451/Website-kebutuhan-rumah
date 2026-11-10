@@ -18,6 +18,7 @@ function app_config(): array
         'timezone' => 'Asia/Jakarta',
         'fonnte_token' => '',
         'fonnte_target' => '',
+        'telegram_backup_secret' => '',
         'cron_secret' => '',
     ];
 

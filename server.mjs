@@ -12,7 +12,7 @@ const databasePath = path.join(root, 'storage', 'rumahku.sqlite');
 // Upload bukti berupa gambar terkompres dikirim sebagai JSON+base64, jadi badan permintaan boleh lebih besar.
 const maxRequestBody = 12 * 1024 * 1024;
 const filesToServe = [
-  'index.php', 'api.php', 'cron.php', 'whatsapp.php', '.htaccess', 'config.php',
+  'index.php', 'api.php', 'cron.php', 'whatsapp.php', 'telegram-backup.php', '.htaccess', 'config.php',
   'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
 ];
 

@@ -4,4 +4,6 @@ storage/*.sqlite
 storage/*.sqlite-*
 storage/*.db
 .runtime/
+cloudflare-backup/.dev.vars
+cloudflare-backup/.wrangler/
 .DS_Store

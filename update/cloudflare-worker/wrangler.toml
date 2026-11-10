@@ -1,0 +1,7 @@
+name = "rumahku-nightly-backup"
+main = "worker.js"
+compatibility_date = "2026-11-09"
+
+[triggers]
+# Cron uses UTC: 17:00 UTC = 00:00 the next day in Asia/Jakarta.
+crons = ["0 17 * * *"]
