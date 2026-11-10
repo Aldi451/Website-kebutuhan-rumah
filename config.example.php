@@ -22,6 +22,10 @@ return [
     'fonnte_token' => '',
     'fonnte_target' => '',
 
+    // Secret HMAC untuk Worker backup Telegram eksternal (minimal 32 karakter acak).
+    // Isi hanya di config.php hosting; nilainya harus sama dengan secret di Cloudflare Worker.
+    'telegram_backup_secret' => '',
+
     // Rahasia acak minimal 32 karakter untuk cron.php.
     // Contoh: hasilkan dengan `php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"`
     'cron_secret' => '',

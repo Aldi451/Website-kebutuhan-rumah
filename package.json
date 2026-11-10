@@ -6,7 +6,8 @@
   "description": "Dashboard keuangan rumah dan pengingat keluarga berbasis PHP.",
   "scripts": {
     "start": "node server.mjs",
-    "dev": "node server.mjs"
+    "dev": "node server.mjs",
+    "package:update": "node scripts/build-update-folder.mjs"
   },
   "devDependencies": {
     "@php-wasm/node-8-2": "3.1.58",

@@ -177,6 +177,18 @@ Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO M
 
 Ekstensi PHP yang dipakai: **PDO MySQL/SQLite** (wajib), **GD** (untuk kompresi ulang gambar bukti di server; kalau GD tidak aktif aplikasi tetap berjalan, gambar hanya dikompres di browser), dan **fileinfo** (opsional).
 
+## Backup SQL otomatis ke Telegram (opsional, Worker eksternal)
+
+InfinityFree Free tidak menyediakan cron dan akses Telegram Bot API dari PHP hosting dibatasi. Untuk backup harian, jadwalkan file `cloudflare-backup/worker.js` sebagai Cloudflare Worker; Worker mengambil SQL lewat endpoint PHP bertanda tangan HMAC lalu mengirimnya sebagai dokumen ke chat privat Telegram. Cloudflare Cron berjalan dalam UTC, jadi `0 17 * * *` berarti sekitar pukul 00.00 WIB.
+
+1. Unggah `telegram-backup.php` dan versi terbaru `includes/app.php` ke hosting. Di `config.php` hosting, tambahkan `telegram_backup_secret` dengan secret acak minimal 32 karakter. Gunakan secret yang sama untuk Worker; jangan commit atau kirim nilainya lewat chat.
+2. Buat Worker dari `cloudflare-backup/worker.js`, tambahkan Cron Trigger `0 17 * * *`, lalu set binding/secret `BACKUP_URL` (misalnya `https://domainmu/telegram-backup.php`), `BACKUP_HMAC_SECRET`, `TELEGRAM_BOT_TOKEN`, dan `TELEGRAM_CHAT_ID`. Token dan HMAC harus disimpan sebagai **Secrets**, bukan di source code.
+3. Mulai chat privat dengan bot lewat `/start` dan gunakan chat ID privat. Uji handler secara lokal dengan `npx wrangler dev --test-scheduled` (isi `.dev.vars`, jangan commit), lalu periksa log Worker setelah deploy. Kalau InfinityFree mengembalikan halaman challenge alih-alih SQL, backup akan dibatalkan dan Worker mengirim notifikasi gagal.
+
+File SQL dibatasi sampai 45 MiB agar dapat dikirim lewat Telegram. Backup berisi data sensitif termasuk hash kata sandi dan pengaturan aplikasi; kirim hanya ke chat privat yang aman, jangan ke grup. Telegram bukan penyimpanan end-to-end terenkripsi. Seperti backup manual, gambar bukti hanya dimasukkan jika total ukurannya tidak lebih dari 6 MB; Worker memberi peringatan bila ekspor SQL melewatkan gambar.
+
+Untuk file yang perlu dipasang, lihat `update/README.md`. Folder `update/` membagi file hosting website dan file Cloudflare Worker, serta bisa disegarkan dari source dengan `npm run package:update`.
+
 ## Hubungkan notifikasi WhatsApp (Fonnte)
 
 Notifikasi memakai gateway **Fonnte** (fonnte.com). Fonnte mengirim pesan lewat nomor WhatsApp yang kamu sambungkan sendiri, jadi tidak ada bot Telegram yang perlu dibuat.
