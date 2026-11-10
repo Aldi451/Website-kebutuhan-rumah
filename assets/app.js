@@ -72,6 +72,7 @@
     moon: '<path d="M20.2 15.7A8.6 8.6 0 0 1 8.3 3.8a8.8 8.8 0 1 0 11.9 11.9Z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>',
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3"/>',
     camera: '<path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.4"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
     edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
@@ -620,17 +621,54 @@
     const reminders = type === 'reminders';
     const instructions = reminders
       ? 'Kolom wajib: Judul dan Tanggal. Kolom Jam opsional (format 09:30); biarkan kosong bila pengingatnya cukup per tanggal — kabarnya dikirim sekitar 09:00.'
-      : 'Kolom wajib: Jenis (Pemasukan/Pengeluaran), Nama transaksi, Nominal, dan Tanggal (YYYY-MM-DD).';
-    openModal(reminders ? 'Import pengingat' : 'Import keuangan', 'Unggah banyak baris sekaligus dari Excel atau CSV.', `
+      : 'Kolom wajib: Jenis (Pemasukan/Pengeluaran), Nama transaksi, Nominal, dan Tanggal. Impor ini hanya menambahkan data uang masuk/keluar; tidak mengubah pengingat, anggota, atau pengaturan WhatsApp.';
+    const clipboardImport = !reminders ? `
+        <div class="import-paste-box">
+          <label for="import-paste-data">Atau tempel data transaksi dari Excel</label>
+          <textarea class="textarea import-paste-input" id="import-paste-data" data-import-paste placeholder="Salin tabel dari Excel (termasuk baris judul kolom), lalu tempel di sini…" spellcheck="false"></textarea>
+          <button class="btn btn-secondary" type="button" data-action="read-import-paste">${icon('clipboard')} Periksa data tempelan</button>
+          <small>Kolom yang dikenali termasuk type/kind, title/description, amount, transaction_date, category, dan note. Maksimal 500 baris per impor. ID, user_id, dan created_at lama tidak disalin; baris baru tercatat pada akun yang sedang login.</small>
+        </div>` : '';
+    openModal(reminders ? 'Import pengingat' : 'Import keuangan', 'Tambahkan banyak baris sekaligus dari Excel, CSV, atau clipboard.', `
       <div class="modal-body import-modal-body">
-        <div class="import-instructions"><p>${instructions}</p><p>Baris pertama harus berisi judul kolom. Workbook dibaca dari sheet pertama, maksimal 500 baris per file; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
+        <div class="import-instructions"><p>${instructions}</p><p>Baris pertama harus berisi judul kolom. Maksimal 500 baris per impor; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
         <button class="btn btn-secondary import-template-button" type="button" data-action="download-import-template" data-import-type="${type}">${icon('receipt')} Unduh template CSV</button>
         <label class="import-upload-box" for="import-file"><input class="import-file-input" id="import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-import-file><span class="import-upload-mark">${icon('upload')}</span><span class="import-upload-copy"><strong>Pilih file Excel atau CSV</strong><small data-import-file-name>Format .xlsx atau .csv · maksimal 10 MB</small></span></label>
-        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; unggah file yang sama lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim WhatsApp satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
+        ${clipboardImport}
+        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; file/baris yang sama diimpor lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim WhatsApp satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
         <p class="error-text import-error" data-import-error hidden></p>
         <div class="import-preview" data-import-preview hidden></div>
         <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="button" data-action="confirm-import" disabled>Import</button></div>
       </div>`, { widthClass: 'modal-import' });
+  }
+
+  async function handleImportPaste() {
+    if (state.importType !== 'transactions') return;
+    const textarea = modalRoot.querySelector('[data-import-paste]');
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    const text = textarea?.value || '';
+    state.importPreview = null;
+    if (previewNode) { previewNode.hidden = true; previewNode.innerHTML = ''; }
+    if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+    if (!text.trim()) {
+      if (errorNode) { errorNode.textContent = 'Tempel dulu data transaksi dari Excel, termasuk baris judul kolom.'; errorNode.hidden = false; }
+      if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+      return;
+    }
+    if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Memeriksa…'; }
+    try {
+      if (!window.HouseholdImport) throw new Error('Pembaca data belum siap. Muat ulang halaman lalu coba lagi.');
+      const pastedFile = new File([text], 'clipboard.csv', { type: 'text/csv' });
+      const workbookRows = await window.HouseholdImport.read(pastedFile);
+      const prepared = prepareImportRows('transactions', workbookRows);
+      state.importPreview = { ...prepared, type: 'transactions', fileName: 'Tempelan Excel' };
+      renderImportPreview();
+    } catch (error) {
+      if (errorNode) { errorNode.textContent = error.message || 'Data tempelan tidak dapat dibaca.'; errorNode.hidden = false; }
+      if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+    }
   }
 
   function normalizeImportHeader(value) {
@@ -757,19 +795,19 @@
     const invalid = [];
     if (type === 'transactions') {
       const indexes = {
-        kind: importColumn(headers, ['jenis', 'tipe', 'jenis transaksi', 'type', 'kind']),
-        title: importColumn(headers, ['nama transaksi', 'transaksi', 'judul', 'nama', 'title']),
+        kind: importColumn(headers, ['jenis', 'tipe', 'jenis transaksi', 'transaction type', 'transaction_type', 'type', 'kind', 'direction']),
+        title: importColumn(headers, ['nama transaksi', 'transaksi', 'judul', 'nama', 'title', 'description', 'merchant']),
         amount: importColumn(headers, ['nominal', 'jumlah', 'amount', 'total', 'nilai']),
-        date: importColumn(headers, ['tanggal transaksi', 'tanggal', 'date', 'tgl', 'transaction date']),
+        date: importColumn(headers, ['tanggal transaksi', 'tanggal', 'date', 'tgl', 'transaction date', 'transaction_date']),
         category: importColumn(headers, ['kategori', 'category']),
-        note: importColumn(headers, ['catatan', 'note', 'keterangan', 'deskripsi']),
+        note: importColumn(headers, ['catatan', 'note', 'notes', 'keterangan', 'deskripsi', 'memo']),
       };
       const missing = Object.entries({ kind: 'Jenis', title: 'Nama transaksi', amount: 'Nominal', date: 'Tanggal' }).filter(([key]) => indexes[key] < 0).map(([, label]) => label);
       if (missing.length) throw new Error(`Kolom wajib belum ditemukan: ${missing.join(', ')}. Gunakan template agar formatnya sesuai.`);
       for (const row of rows) {
         const kindText = normalizeImportHeader(importCell(row, indexes.kind));
-        const kind = ['pemasukan', 'income', 'masuk', 'uangmasuk'].includes(kindText) ? 'income'
-          : ['pengeluaran', 'expense', 'keluar', 'uangkeluar'].includes(kindText) ? 'expense' : '';
+        const kind = ['pemasukan', 'income', 'masuk', 'uangmasuk', 'credit', 'deposit', 'inflow'].includes(kindText) ? 'income'
+          : ['pengeluaran', 'expense', 'keluar', 'uangkeluar', 'debit', 'withdrawal', 'outflow'].includes(kindText) ? 'expense' : '';
         const title = String(importCell(row, indexes.title) ?? '').trim();
         const category = String(importCell(row, indexes.category) || 'Lainnya').trim();
         const amount = parseImportAmount(importCell(row, indexes.amount));
@@ -1707,6 +1745,7 @@
     if (action === 'toggle-login-theme') setLoginTheme(state.loginTheme === 'dark' ? 'light' : 'dark');
     else if (action === 'open-import') openImportModal(actionButton.dataset.importType);
     else if (action === 'download-import-template') downloadImportTemplate(actionButton.dataset.importType);
+    else if (action === 'read-import-paste') await handleImportPaste();
     else if (action === 'confirm-import') await confirmImport(actionButton);
     else if (action === 'download-report') downloadReportCsv();
     else if (action === 'report-pick-category') {
