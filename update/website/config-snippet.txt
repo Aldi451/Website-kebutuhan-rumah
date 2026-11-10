@@ -1,7 +1,7 @@
 Tambahkan baris ini DI DALAM array return [ ... ] pada config.php yang SUDAH ADA.
 Jangan mengganti seluruh config.php dan jangan upload snippet ini sebagai file PHP.
 
-    'telegram_backup_secret' => 'GANTI_DENGAN_SECRET_ACAK_MINIMAL_32_KARAKTER',
+    'telegram_backup_secret' => '73948b05be541ea701eeb0e900824e2e10ff8bd08ace680e2570a2e27dd27b93',
 
 Gunakan secret yang sama sebagai BACKUP_HMAC_SECRET di Cloudflare Worker.
 Jangan commit atau kirim nilai secret ke chat.
