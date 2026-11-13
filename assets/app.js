@@ -599,10 +599,40 @@
     }
   }
 
+  const CLIPBOARD_FALLBACK_COLUMNS = [
+    { label: 'Tanggal', sample: '2026-07-30 / 30/07/2026' },
+    { label: 'Jenis', sample: 'Masuk / Keluar' },
+    { label: 'Kategori', sample: 'Makanan / Payroll dll' },
+    { label: 'Jumlah (Rp)', sample: '50000 / 50.000' },
+    { label: 'Keterangan', sample: 'Makan siang / Gaji' },
+  ];
+  // Jumlah baris pratinjau yang bisa diedit langsung (sisanya ikut hasil baca otomatis).
+  const IMPORT_PREVIEW_EDIT_LIMIT = 30;
+  const IMPORT_PASTE_HINT = 'Belum ada data ditempel. Pemisah kolom boleh tab, titik koma, atau spasi ganda.';
+  const IMPORT_DUPLICATE_NOTE = 'Setiap baris ditambahkan sebagai catatan baru; data yang sama diimpor dua kali akan menjadi ganda. ID, user_id, dan created_at lama tidak disalin — transaksi baru tercatat atas akun yang sedang login.';
+
+  function clipboardColumns() {
+    const columns = window.HouseholdClipboard?.columns;
+    return Array.isArray(columns) && columns.length ? columns : CLIPBOARD_FALLBACK_COLUMNS;
+  }
+
+  function escapeAttribute(value) {
+    return escapeHtml(value).replace(/\n/g, '&#10;');
+  }
+
+  function importClipboard() {
+    return window.HouseholdClipboard || null;
+  }
+
+  function importPastePlaceholder() {
+    const sample = importClipboard()?.sampleText?.() || '';
+    return `Tempel (Ctrl+V) data hasil copy dari Microsoft Excel atau Google Sheets di sini…\n\nContoh:\n${sample}`;
+  }
+
   function downloadImportTemplate(type) {
     const columns = type === 'reminders'
       ? ['Judul', 'Tanggal', 'Jam', 'Kategori', 'Catatan']
-      : ['Jenis', 'Nama transaksi', 'Nominal', 'Tanggal', 'Kategori', 'Catatan'];
+      : ['Tanggal', 'Jenis', 'Kategori', 'Jumlah', 'Keterangan'];
     const csv = `\uFEFF${columns.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')}\r\n`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
@@ -614,60 +644,221 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function clipboardGuideMarkup() {
+    const columns = clipboardColumns();
+    const head = columns.map((column, index) => `<span role="columnheader">${escapeHtml(`Kolom ${index + 1}`)}</span>`).join('');
+    const names = columns.map((column) => `<span role="cell">${escapeHtml(column.label)}</span>`).join('');
+    const samples = columns.map((column) => `<span role="cell">${escapeHtml(column.sample)}</span>`).join('');
+    return `<div class="clipboard-guide-table" role="table" aria-label="Urutan kolom data Excel">
+      <div class="clipboard-guide-row clipboard-guide-head" role="row">${head}</div>
+      <div class="clipboard-guide-row clipboard-guide-names" role="row">${names}</div>
+      <div class="clipboard-guide-row clipboard-guide-samples" role="row">${samples}</div>
+    </div>`;
+  }
+
+  function clipboardImportMarkup() {
+    return `<section class="clipboard-import">
+      <header class="clipboard-import-head">
+        <span class="clipboard-import-mark" aria-hidden="true">${icon('clipboard')}</span>
+        <div class="clipboard-import-copy">
+          <h3>Import data dari copy paste Excel / clipboard</h3>
+          <p>Salin (copy) baris data dari Excel atau Google Sheets, tempel (paste) di sini, periksa &amp; edit data sebelum disimpan ke database.</p>
+        </div>
+        <span class="clipboard-import-badge">${icon('upload')} multi-baris</span>
+      </header>
+      <div class="clipboard-guide">
+        <span class="clipboard-guide-mark" aria-hidden="true">${icon('info')}</span>
+        <div class="clipboard-guide-body">
+          <strong>Urutan kolom data Excel (wajib disesuaikan):</strong>
+          ${clipboardGuideMarkup()}
+          <div class="clipboard-guide-foot">
+            <p><span class="clipboard-guide-emoji" aria-hidden="true">💡</span> Tips: blok &amp; salin beberapa baris sekaligus dari Excel tanpa menyertakan baris judul kolom.</p>
+            <button class="clipboard-sample-button" type="button" data-action="copy-import-sample">${icon('clipboard')} Salin format sample Excel</button>
+          </div>
+        </div>
+      </div>
+      <div class="clipboard-paste">
+        <label class="clipboard-paste-label" for="import-paste-data">Paste data Excel di sini:</label>
+        <textarea class="textarea clipboard-paste-input" id="import-paste-data" data-import-paste spellcheck="false" placeholder="${escapeAttribute(importPastePlaceholder())}"></textarea>
+        <p class="clipboard-paste-meta" data-import-paste-meta>${escapeHtml(IMPORT_PASTE_HINT)}</p>
+        <div class="clipboard-actions">
+          <button class="btn btn-secondary clipboard-paste-button" type="button" data-action="read-import-clipboard">${icon('clipboard')} Tempel dari clipboard <span>(auto paste)</span></button>
+          <div class="clipboard-actions-side">
+            <button class="btn btn-soft" type="button" data-action="clear-import-paste">${icon('close')} Bersihkan teks</button>
+            <button class="btn" type="button" data-action="read-import-paste">${icon('check')} Proses &amp; parse data</button>
+          </div>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function importUploadMarkup() {
+    return `<label class="import-upload-box" for="import-file"><input class="import-file-input" id="import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-import-file><span class="import-upload-mark">${icon('upload')}</span><span class="import-upload-copy"><strong>Pilih file Excel atau CSV</strong><small data-import-file-name>Format .xlsx atau .csv · maksimal 10 MB</small></span></label>`;
+  }
+
   function openImportModal(type) {
     if (!['transactions', 'reminders'].includes(type)) return;
     state.importType = type;
     state.importPreview = null;
     const reminders = type === 'reminders';
-    const instructions = reminders
-      ? 'Kolom wajib: Judul dan Tanggal. Kolom Jam opsional (format 09:30); biarkan kosong bila pengingatnya cukup per tanggal — kabarnya dikirim sekitar 09:00.'
-      : 'Kolom wajib: Jenis (Pemasukan/Pengeluaran), Nama transaksi, Nominal, dan Tanggal. Impor ini hanya menambahkan data uang masuk/keluar; tidak mengubah pengingat, anggota, atau pengaturan WhatsApp.';
-    const clipboardImport = !reminders ? `
-        <div class="import-paste-box">
-          <label for="import-paste-data">Atau tempel data transaksi dari Excel</label>
-          <textarea class="textarea import-paste-input" id="import-paste-data" data-import-paste placeholder="Salin tabel dari Excel (termasuk baris judul kolom), lalu tempel di sini…" spellcheck="false"></textarea>
-          <button class="btn btn-secondary" type="button" data-action="read-import-paste">${icon('clipboard')} Periksa data tempelan</button>
-          <small>Kolom yang dikenali termasuk type/kind, title/description, amount, transaction_date, category, dan note. Maksimal 500 baris per impor. ID, user_id, dan created_at lama tidak disalin; baris baru tercatat pada akun yang sedang login.</small>
-        </div>` : '';
-    openModal(reminders ? 'Import pengingat' : 'Import keuangan', 'Tambahkan banyak baris sekaligus dari Excel, CSV, atau clipboard.', `
-      <div class="modal-body import-modal-body">
-        <div class="import-instructions"><p>${instructions}</p><p>Baris pertama harus berisi judul kolom. Maksimal 500 baris per impor; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
-        <button class="btn btn-secondary import-template-button" type="button" data-action="download-import-template" data-import-type="${type}">${icon('receipt')} Unduh template CSV</button>
-        <label class="import-upload-box" for="import-file"><input class="import-file-input" id="import-file" type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-import-file><span class="import-upload-mark">${icon('upload')}</span><span class="import-upload-copy"><strong>Pilih file Excel atau CSV</strong><small data-import-file-name>Format .xlsx atau .csv · maksimal 10 MB</small></span></label>
-        ${clipboardImport}
-        <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; file/baris yang sama diimpor lagi bisa membuat data ganda.${reminders ? ' Pengingat impor tidak mengirim WhatsApp satu per satu; notifikasi jadwal mengikuti cron.' : ''}</p>
+    if (reminders) {
+      openModal('Import pengingat', 'Tambahkan banyak baris pengingat sekaligus dari Excel atau CSV.', `
+        <div class="modal-body import-modal-body">
+          <div class="import-instructions"><p>Kolom wajib: Judul dan Tanggal. Kolom Jam opsional (format 09:30); biarkan kosong bila pengingatnya cukup per tanggal — kabarnya dikirim sekitar 09:00.</p><p>Baris pertama harus berisi judul kolom. Maksimal 500 baris per impor; tanggal boleh berformat YYYY-MM-DD atau DD/MM/YYYY. File .xls lama simpan ulang sebagai .xlsx.</p></div>
+          <button class="btn btn-secondary import-template-button" type="button" data-action="download-import-template" data-import-type="reminders">${icon('receipt')} Unduh template CSV</button>
+          ${importUploadMarkup()}
+          <p class="import-duplicate-note">Setiap baris ditambahkan sebagai catatan baru; file/baris yang sama diimpor lagi bisa membuat data ganda. Pengingat impor tidak mengirim WhatsApp satu per satu; notifikasi jadwal mengikuti cron.</p>
+          <p class="error-text import-error" data-import-error hidden></p>
+          <div class="import-preview" data-import-preview hidden></div>
+          <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="button" data-action="confirm-import" disabled>Import</button></div>
+        </div>`, { widthClass: 'modal-import' });
+      return;
+    }
+    openModal('Import data dari copy paste Excel / clipboard', 'Salin (copy) baris data dari Excel/Google Sheets, tempel (paste) di sini, periksa & edit data sebelum disimpan ke database.', `
+      <div class="modal-body import-modal-body import-modal-body-clipboard">
+        ${clipboardImportMarkup()}
+        <div class="import-file-row">
+          <span class="import-file-label">Atau unggah file</span>
+          ${importUploadMarkup()}
+          <button class="btn-link" type="button" data-action="download-import-template" data-import-type="transactions">${icon('receipt')} Unduh template CSV</button>
+        </div>
+        <p class="import-duplicate-note">${escapeHtml(IMPORT_DUPLICATE_NOTE)}</p>
         <p class="error-text import-error" data-import-error hidden></p>
         <div class="import-preview" data-import-preview hidden></div>
         <div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="button" data-action="confirm-import" disabled>Import</button></div>
-      </div>`, { widthClass: 'modal-import' });
+      </div>`, { widthClass: 'modal-import modal-import-clipboard' });
+  }
+
+  function importPasteTextarea() {
+    return modalRoot.querySelector('[data-import-paste]');
+  }
+
+  function updateImportPasteMeta() {
+    const meta = modalRoot.querySelector('[data-import-paste-meta]');
+    const textarea = importPasteTextarea();
+    if (!meta || !textarea) return;
+    const text = textarea.value;
+    if (!text.trim()) {
+      meta.textContent = IMPORT_PASTE_HINT;
+      meta.classList.remove('is-ready', 'is-error');
+      return;
+    }
+    try {
+      const parsed = importClipboard()?.parse?.(text);
+      if (!parsed) throw new Error('Pembaca clipboard belum siap. Muat ulang halaman lalu coba lagi.');
+      meta.textContent = `${parsed.dataRows} baris · ${parsed.columns} kolom terbaca${parsed.hasHeader ? ' · baris judul kolom otomatis dilewati' : ''}. Klik “Proses & parse data”.`;
+      meta.classList.add('is-ready');
+      meta.classList.remove('is-error');
+    } catch (error) {
+      meta.textContent = error.message || 'Tempelan tidak dapat dibaca.';
+      meta.classList.add('is-error');
+      meta.classList.remove('is-ready');
+    }
+  }
+
+  function setImportPasteText(text) {
+    const textarea = importPasteTextarea();
+    if (!textarea) return;
+    textarea.value = text;
+    updateImportPasteMeta();
+  }
+
+  function resetImportPreview() {
+    state.importPreview = null;
+    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    if (previewNode) { previewNode.hidden = true; previewNode.innerHTML = ''; }
+    if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+    if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+  }
+
+  function showImportError(message) {
+    const errorNode = modalRoot.querySelector('[data-import-error]');
+    if (!errorNode) return;
+    errorNode.textContent = message;
+    errorNode.hidden = !message;
+  }
+
+  function clearImportPaste() {
+    setImportPasteText('');
+    resetImportPreview();
+    const textarea = importPasteTextarea();
+    if (textarea) textarea.focus();
+    showToast('Teks tempelan dibersihkan.');
+  }
+
+  async function copyImportSample() {
+    const sample = importClipboard()?.sampleText?.() || '';
+    if (!sample) {
+      showToast('Contoh format belum siap. Muat ulang halaman lalu coba lagi.', 'error');
+      return;
+    }
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(sample);
+        copied = true;
+      }
+    } catch { copied = false; }
+    if (copied) {
+      showToast('Format sample Excel disalin ke clipboard. Tempel di Excel atau langsung ke kotak paste.');
+      return;
+    }
+    setImportPasteText(sample);
+    showToast('Browser memblokir clipboard otomatis; contoh format sudah diisi ke kotak paste.', 'error');
+  }
+
+  async function pasteFromClipboard() {
+    showImportError('');
+    let text = '';
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('browser belum mendukung baca clipboard otomatis');
+      text = await navigator.clipboard.readText();
+    } catch (error) {
+      showImportError(`Clipboard tidak bisa dibaca otomatis (${error.message || 'akses ditolak'}). Klik kotak paste di atas lalu tekan Ctrl+V.`);
+      return;
+    }
+    if (!String(text || '').trim()) {
+      showImportError('Clipboard kosong. Salin dulu baris data dari Excel, lalu coba lagi.');
+      return;
+    }
+    setImportPasteText(String(text));
+    const textarea = importPasteTextarea();
+    if (textarea) textarea.focus();
+    showToast('Data dari clipboard berhasil ditempel.');
+    await handleImportPaste();
   }
 
   async function handleImportPaste() {
     if (state.importType !== 'transactions') return;
-    const textarea = modalRoot.querySelector('[data-import-paste]');
-    const errorNode = modalRoot.querySelector('[data-import-error]');
-    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const textarea = importPasteTextarea();
     const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
-    const text = textarea?.value || '';
+    const previewNode = modalRoot.querySelector('[data-import-preview]');
+    const text = String(textarea?.value || '');
     state.importPreview = null;
     if (previewNode) { previewNode.hidden = true; previewNode.innerHTML = ''; }
-    if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+    showImportError('');
     if (!text.trim()) {
-      if (errorNode) { errorNode.textContent = 'Tempel dulu data transaksi dari Excel, termasuk baris judul kolom.'; errorNode.hidden = false; }
       if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+      showImportError('Tempel dulu data dari Excel. Salin beberapa baris, lalu tekan Ctrl+V di kotak paste.');
       return;
     }
     if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Memeriksa…'; }
     try {
-      if (!window.HouseholdImport) throw new Error('Pembaca data belum siap. Muat ulang halaman lalu coba lagi.');
-      const pastedFile = new File([text], 'clipboard.csv', { type: 'text/csv' });
-      const workbookRows = await window.HouseholdImport.read(pastedFile);
-      const prepared = prepareImportRows('transactions', workbookRows);
-      state.importPreview = { ...prepared, type: 'transactions', fileName: 'Tempelan Excel' };
+      if (!importClipboard()) throw new Error('Pembaca data belum siap. Muat ulang halaman lalu coba lagi.');
+      const parsed = importClipboard().parse(text);
+      const prepared = prepareImportRows('transactions', parsed.rows);
+      state.importPreview = { ...prepared, type: 'transactions', fileName: `Tempelan clipboard · ${parsed.dataRows} baris` };
       renderImportPreview();
+      if (!prepared.valid.length) {
+        showImportError('Belum ada baris yang valid. Periksa urutan kolom sesuai panduan di atas, lalu proses ulang.');
+        return;
+      }
+      showToast(`${prepared.valid.length} baris siap diperiksa${prepared.invalid.length ? `; ${prepared.invalid.length} baris dilewati` : ''}.`, prepared.invalid.length ? 'error' : 'success');
     } catch (error) {
-      if (errorNode) { errorNode.textContent = error.message || 'Data tempelan tidak dapat dibaca.'; errorNode.hidden = false; }
       if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
+      showImportError(error.message || 'Data tempelan tidak dapat dibaca.');
     }
   }
 
@@ -783,45 +974,112 @@
     return Number.isFinite(amount) ? Math.round(negative ? -amount : amount) : NaN;
   }
 
+  // Jenis transaksi: terima kata Indonesia maupun header umum Excel/Supabase.
+  function normalizeTransactionKind(value) {
+    const text = normalizeImportHeader(value);
+    if (!text) return '';
+    if (['pemasukan', 'income', 'masuk', 'uangmasuk', 'credit', 'deposit', 'inflow', 'in'].includes(text)) return 'income';
+    if (['pengeluaran', 'expense', 'keluar', 'uangkeluar', 'debit', 'withdrawal', 'outflow', 'out'].includes(text)) return 'expense';
+    if (text.startsWith('pemasukan') || text.startsWith('masuk')) return 'income';
+    if (text.startsWith('pengeluaran') || text.startsWith('keluar')) return 'expense';
+    return '';
+  }
+
+  const IMPORT_HEADER_WORDS = new Set([
+    'tanggal', 'tgl', 'date', 'tanggaltransaksi', 'transactiondate',
+    'jenis', 'tipe', 'type', 'kind', 'transactiontype', 'jenistransaksi',
+    'kategori', 'category', 'jumlah', 'jumlahrp', 'nominal', 'nominalrp', 'amount', 'total', 'nilai',
+    'keterangan', 'catatan', 'note', 'notes', 'deskripsi', 'description', 'memo',
+    'nama', 'namatransaksi', 'transaksi', 'title', 'judul',
+  ]);
+
+  function looksLikeImportHeaderRow(cells) {
+    const matches = (cells || []).filter((cell) => IMPORT_HEADER_WORDS.has(normalizeImportHeader(cell))).length;
+    return matches >= 2;
+  }
+
+  // Format cepat ala clipboard: Tanggal | Jenis | Kategori | Jumlah | Keterangan.
+  // Baris pertama juga dianggap data bila kolom pertamanya tanggal dan
+  // bukan tampak seperti baris judul kolom.
+  function looksLikeTransactionDataRow(row) {
+    const cells = row?.cells || [];
+    if (cells.length < 3) return false;
+    if (looksLikeImportHeaderRow(cells)) return false;
+    if (!parseImportDate(cells[0])) return false;
+    return Boolean(normalizeTransactionKind(cells[1])) || Number.isFinite(parseImportAmount(cells[3]));
+  }
+
+  function normalizeTransactionData(parts) {
+    return {
+      kind: normalizeTransactionKind(parts.kind),
+      title: String(parts.title ?? '').trim(),
+      category: String(parts.category ?? '').trim() || 'Lainnya',
+      amount: parseImportAmount(parts.amount),
+      date: parseImportDate(parts.date)?.date || '',
+      note: String(parts.note ?? '').trim(),
+    };
+  }
+
+  // Satu sumber aturan validasi, dipakai saat parse maupun saat baris diedit di pratinjau.
+  function validateTransactionData(data) {
+    const reasons = [];
+    if (!['income', 'expense'].includes(data?.kind)) reasons.push('Jenis harus Masuk atau Keluar');
+    const title = String(data?.title ?? '').trim();
+    if (!title) reasons.push('Keterangan transaksi wajib diisi');
+    else if (title.length > 100) reasons.push('Keterangan maksimal 100 karakter');
+    const category = String(data?.category ?? '').trim();
+    if (!category) reasons.push('Kategori wajib diisi');
+    else if (category.length > 40) reasons.push('Kategori maksimal 40 karakter');
+    const amount = Number(data?.amount);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 999999999999) reasons.push('Jumlah tidak valid');
+    if (!String(data?.date || '') || !parseImportDate(data.date)) reasons.push('Tanggal tidak valid');
+    if (String(data?.note ?? '').length > 500) reasons.push('Catatan maksimal 500 karakter');
+    return reasons;
+  }
+
   function prepareImportRows(type, workbookRows) {
     const headerPosition = workbookRows.findIndex((row) => row.cells.some((cell) => String(cell ?? '').trim() !== ''));
-    if (headerPosition < 0) throw new Error('File belum berisi judul kolom.');
-    const headers = workbookRows[headerPosition].cells;
-    const rows = workbookRows.slice(headerPosition + 1).filter((row) => row.cells.some((cell) => String(cell ?? '').trim() !== ''));
-    if (!rows.length) throw new Error('File belum berisi baris data.');
-    if (rows.length > 500) throw new Error('Maksimal 500 baris data per file.');
+    if (headerPosition < 0) throw new Error('Belum ada data yang bisa dibaca. Tempel atau pilih file yang berisi baris data.');
+    const firstRow = workbookRows[headerPosition];
+    // Tempelan tanpa judul kolom tetap diterima selama urutannya sesuai panduan.
+    const quickLayout = type === 'transactions' && looksLikeTransactionDataRow(firstRow);
+    const headers = quickLayout ? [] : firstRow.cells;
+    const rows = (quickLayout ? workbookRows.slice(headerPosition) : workbookRows.slice(headerPosition + 1))
+      .filter((row) => row.cells.some((cell) => String(cell ?? '').trim() !== ''));
+    if (!rows.length) throw new Error(quickLayout ? 'Tidak ada baris data yang bisa diimpor.' : 'Data hanya berisi judul kolom. Tambahkan baris datanya juga.');
+    if (rows.length > 500) throw new Error('Maksimal 500 baris data sekali import. Tempel atau unggah sebagian dulu.');
 
     const valid = [];
     const invalid = [];
     if (type === 'transactions') {
-      const indexes = {
+      const indexes = quickLayout ? { date: 0, kind: 1, category: 2, amount: 3, title: 4, note: 5 } : {
         kind: importColumn(headers, ['jenis', 'tipe', 'jenis transaksi', 'transaction type', 'transaction_type', 'type', 'kind', 'direction']),
         title: importColumn(headers, ['nama transaksi', 'transaksi', 'judul', 'nama', 'title', 'description', 'merchant']),
-        amount: importColumn(headers, ['nominal', 'jumlah', 'amount', 'total', 'nilai']),
+        amount: importColumn(headers, ['nominal', 'jumlah', 'jumlah (rp)', 'jumlah rp', 'nominal (rp)', 'amount', 'total', 'nilai']),
         date: importColumn(headers, ['tanggal transaksi', 'tanggal', 'date', 'tgl', 'transaction date', 'transaction_date']),
         category: importColumn(headers, ['kategori', 'category']),
         note: importColumn(headers, ['catatan', 'note', 'notes', 'keterangan', 'deskripsi', 'memo']),
       };
-      const missing = Object.entries({ kind: 'Jenis', title: 'Nama transaksi', amount: 'Nominal', date: 'Tanggal' }).filter(([key]) => indexes[key] < 0).map(([, label]) => label);
-      if (missing.length) throw new Error(`Kolom wajib belum ditemukan: ${missing.join(', ')}. Gunakan template agar formatnya sesuai.`);
+      if (!quickLayout) {
+        // Kolom "Keterangan" dipakai sebagai nama transaksi bila tidak ada kolom nama khusus.
+        if (indexes.title < 0 && indexes.note >= 0) { indexes.title = indexes.note; indexes.note = -1; }
+        const missing = Object.entries({ kind: 'Jenis', amount: 'Jumlah', date: 'Tanggal' }).filter(([key]) => indexes[key] < 0).map(([, label]) => label);
+        if (indexes.title < 0) missing.push('Keterangan');
+        if (missing.length) throw new Error(`Kolom wajib belum ditemukan: ${missing.join(', ')}. Sesuaikan urutan kolom dengan panduan import atau pakai template CSV.`);
+      }
       for (const row of rows) {
-        const kindText = normalizeImportHeader(importCell(row, indexes.kind));
-        const kind = ['pemasukan', 'income', 'masuk', 'uangmasuk', 'credit', 'deposit', 'inflow'].includes(kindText) ? 'income'
-          : ['pengeluaran', 'expense', 'keluar', 'uangkeluar', 'debit', 'withdrawal', 'outflow'].includes(kindText) ? 'expense' : '';
-        const title = String(importCell(row, indexes.title) ?? '').trim();
-        const category = String(importCell(row, indexes.category) || 'Lainnya').trim();
-        const amount = parseImportAmount(importCell(row, indexes.amount));
-        const date = parseImportDate(importCell(row, indexes.date))?.date || '';
-        const note = String(importCell(row, indexes.note) ?? '').trim();
-        const reasons = [];
-        if (!kind) reasons.push('Jenis harus Pemasukan atau Pengeluaran');
-        if (!title || title.length > 100) reasons.push('Nama transaksi wajib diisi (maks. 100 karakter)');
-        if (!Number.isInteger(amount) || amount < 1 || amount > 999999999999) reasons.push('Nominal tidak valid');
-        if (!date) reasons.push('Tanggal tidak valid');
-        if (!category || category.length > 40) reasons.push('Kategori maksimal 40 karakter');
-        if (note.length > 500) reasons.push('Catatan maksimal 500 karakter');
-        if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; ') });
-        else valid.push({ row: row.number, data: { kind, title, category, amount, date, note } });
+        const data = normalizeTransactionData({
+          kind: importCell(row, indexes.kind),
+          title: importCell(row, indexes.title),
+          category: importCell(row, indexes.category),
+          amount: importCell(row, indexes.amount),
+          date: importCell(row, indexes.date),
+          note: importCell(row, indexes.note),
+        });
+        if (!data.title && data.note) data.title = data.note.slice(0, 100);
+        const reasons = validateTransactionData(data);
+        if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; '), data });
+        else valid.push({ row: row.number, data, reasons: [] });
       }
     } else {
       const indexes = {
@@ -863,37 +1121,106 @@
     return data.reminder_time ? `${date}, ${data.reminder_time}` : `${date} · seharian`;
   }
 
+  function importPreviewRowMarkup(item, index) {
+    const data = item.data || {};
+    const reasons = validateTransactionData(data);
+    const field = (name) => `data-preview-field="${name}" data-preview-row="${index}"`;
+    const amountValue = Number.isFinite(Number(data.amount)) && Number(data.amount) > 0 ? String(Math.round(Number(data.amount))) : '';
+    const kindOption = (value, label) => `<option value="${value}"${data.kind === value ? ' selected' : ''}>${label}</option>`;
+    const kindPlaceholder = ['income', 'expense'].includes(data.kind) ? '' : '<option value="" selected>—</option>';
+    return `<tr class="${reasons.length ? 'is-invalid' : ''}" data-preview-index="${index}" title="${escapeAttribute(reasons.join('; '))}">
+      <td><input class="import-cell-input import-cell-date" type="date" value="${escapeAttribute(data.date || '')}" ${field('date')} aria-label="Tanggal baris ${index + 1}"></td>
+      <td><select class="import-cell-input" ${field('kind')} aria-label="Jenis baris ${index + 1}">${kindPlaceholder}${kindOption('income', 'Masuk')}${kindOption('expense', 'Keluar')}</select></td>
+      <td><input class="import-cell-input" type="text" maxlength="100" value="${escapeAttribute(data.title || '')}" ${field('title')} aria-label="Keterangan baris ${index + 1}" placeholder="Keterangan"></td>
+      <td><input class="import-cell-input" type="text" maxlength="40" value="${escapeAttribute(data.category || '')}" ${field('category')} aria-label="Kategori baris ${index + 1}" placeholder="Kategori"></td>
+      <td><input class="import-cell-input import-cell-amount" type="number" min="1" step="1" inputmode="numeric" value="${amountValue}" ${field('amount')} aria-label="Jumlah baris ${index + 1}" placeholder="0"></td>
+      <td class="import-row-action"><button class="import-row-remove" type="button" data-action="remove-import-row" data-index="${index}" aria-label="Hapus baris ${index + 1}" title="Hapus baris ini">${icon('trash')}</button></td>
+    </tr>`;
+  }
+
+  // Menghitung ulang ringkasan + status tombol import tanpa menggambar ulang tabel
+  // supaya fokus input yang sedang diedit tidak hilang.
+  function refreshImportSummary() {
+    const preview = state.importPreview;
+    const summary = modalRoot.querySelector('[data-import-summary]');
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    if (!preview) return;
+    const reminderPreview = preview.type === 'reminders';
+    const brokenRows = reminderPreview ? 0 : preview.valid.filter((item) => validateTransactionData(item.data).length > 0).length;
+    const ready = Math.max(0, preview.valid.length - brokenRows);
+    const skipped = preview.invalid.length + brokenRows;
+    if (summary) {
+      summary.innerHTML = `<strong>${ready} baris siap diimpor</strong><span>${skipped ? `${skipped} baris dilewati / perlu diperbaiki` : 'Semua baris terlihat valid'}</span>`;
+      summary.classList.toggle('has-problem', skipped > 0);
+    }
+    if (confirmButton) {
+      confirmButton.disabled = ready === 0;
+      confirmButton.textContent = ready ? `Import ${ready} baris` : 'Import';
+    }
+  }
+
   function renderImportPreview() {
     const previewNode = modalRoot.querySelector('[data-import-preview]');
-    const errorNode = modalRoot.querySelector('[data-import-error]');
-    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
     const fileNameNode = modalRoot.querySelector('[data-import-file-name]');
     const preview = state.importPreview;
     if (!previewNode || !preview) return;
     previewNode.hidden = false;
-    if (errorNode) errorNode.hidden = true;
-    if (fileNameNode) fileNameNode.textContent = preview.fileName;
-    const reminders = preview.type === 'reminders';
-    const sample = preview.valid.slice(0, 5).map((item) => reminders
-      ? `<tr><td>${escapeHtml(reminderImportLabel(item.data))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`
-      : `<tr><td>${escapeHtml(dateLabel(item.data.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</td><td>${item.data.kind === 'income' ? 'Masuk' : 'Keluar'}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(money(item.data.amount))}</td></tr>`).join('');
-    const headers = reminders ? '<th>Tanggal & jam</th><th>Judul</th><th>Kategori</th>' : '<th>Tanggal</th><th>Jenis</th><th>Transaksi</th><th>Nominal</th>';
+    showImportError('');
     const invalidList = preview.invalid.slice(0, 5).map((item) => `<li>Baris ${Number(item.row)}: ${escapeHtml(item.reason)}</li>`).join('');
-    previewNode.innerHTML = `<div class="import-result-line"><strong>${preview.valid.length} baris siap</strong><span>${preview.invalid.length ? `${preview.invalid.length} dilewati` : 'Data terlihat valid'}</span></div>${sample ? `<div class="import-table-wrap"><table class="import-table"><thead><tr>${headers}</tr></thead><tbody>${sample}</tbody></table></div>` : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>'}${invalidList ? `<details class="import-invalid"><summary>Lihat contoh baris yang dilewati</summary><ul>${invalidList}</ul></details>` : ''}`;
-    if (confirmButton) {
-      confirmButton.disabled = preview.valid.length === 0;
-      confirmButton.textContent = preview.valid.length ? `Import ${preview.valid.length} baris` : 'Import';
+    const invalidMarkup = invalidList ? `<details class="import-invalid"><summary>Lihat contoh baris yang dilewati</summary><ul>${invalidList}</ul></details>` : '';
+    if (preview.type === 'reminders') {
+      if (fileNameNode) fileNameNode.textContent = preview.fileName;
+      const sample = preview.valid.slice(0, 5).map((item) => `<tr><td>${escapeHtml(reminderImportLabel(item.data))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`).join('');
+      previewNode.innerHTML = `<div class="import-result-line" data-import-summary></div>${sample ? `<div class="import-table-wrap"><table class="import-table"><thead><tr><th>Tanggal & jam</th><th>Judul</th><th>Kategori</th></tr></thead><tbody>${sample}</tbody></table></div>` : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>'}${invalidMarkup}`;
+      refreshImportSummary();
+      return;
     }
+    const shown = preview.valid.slice(0, IMPORT_PREVIEW_EDIT_LIMIT);
+    const restNote = preview.valid.length > shown.length
+      ? `<p class="import-preview-note">${preview.valid.length - shown.length} baris lainnya sudah valid dan ikut diimpor apa adanya.</p>` : '';
+    const table = shown.length
+      ? `<div class="import-table-wrap"><table class="import-table import-table-edit"><thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th>Kategori</th><th>Jumlah (Rp)</th><th aria-label="Aksi"></th></tr></thead><tbody>${shown.map((item, index) => importPreviewRowMarkup(item, index)).join('')}</tbody></table></div>`
+      : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>';
+    previewNode.innerHTML = `<div class="import-result-line" data-import-summary></div>
+      <p class="import-preview-hint">${icon('edit')} Periksa hasil baca di bawah. Klik sel untuk memperbaiki keterangan, kategori, jumlah, atau tanggal. Baris bertanda merah tidak ikut diimpor.</p>
+      ${table}${restNote}${invalidMarkup}`;
+    refreshImportSummary();
+  }
+
+  function applyPreviewEdit(input) {
+    const preview = state.importPreview;
+    if (!preview || preview.type !== 'transactions') return;
+    const item = preview.valid[Number(input.dataset.previewRow)];
+    if (!item) return;
+    const field = input.dataset.previewField;
+    if (field === 'amount') item.data.amount = parseImportAmount(input.value);
+    else if (field === 'kind') item.data.kind = input.value;
+    else if (field) item.data[field] = input.value;
+    const reasons = validateTransactionData(item.data);
+    const row = input.closest('tr');
+    if (row) {
+      row.classList.toggle('is-invalid', reasons.length > 0);
+      row.title = reasons.join('; ');
+    }
+    refreshImportSummary();
+  }
+
+  function removeImportRow(index) {
+    const preview = state.importPreview;
+    if (!preview || !preview.valid[index]) return;
+    preview.valid.splice(index, 1);
+    if (!preview.valid.length) {
+      resetImportPreview();
+      showToast('Semua baris dibersihkan. Tempel data lain untuk melanjutkan.', 'error');
+      return;
+    }
+    renderImportPreview();
   }
 
   async function handleImportFile(file) {
-    const errorNode = modalRoot.querySelector('[data-import-error]');
-    const previewNode = modalRoot.querySelector('[data-import-preview]');
-    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
     const fileNameNode = modalRoot.querySelector('[data-import-file-name]');
-    state.importPreview = null;
-    if (previewNode) { previewNode.hidden = true; previewNode.innerHTML = ''; }
-    if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+    const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
+    resetImportPreview();
     if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Membaca…'; }
     if (fileNameNode && file) fileNameNode.textContent = `${file.name} · membaca isi file…`;
     try {
@@ -903,7 +1230,7 @@
       state.importPreview = { ...prepared, type: state.importType, fileName: file.name };
       renderImportPreview();
     } catch (error) {
-      if (errorNode) { errorNode.textContent = error.message || 'File tidak dapat dibaca.'; errorNode.hidden = false; }
+      showImportError(error.message || 'File tidak dapat dibaca.');
       if (fileNameNode) fileNameNode.textContent = file ? file.name : 'Pilih file Excel atau CSV';
       if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
     }
@@ -912,14 +1239,42 @@
   async function confirmImport(button) {
     const preview = state.importPreview;
     if (!preview || !preview.valid.length) return;
+    showImportError('');
+    let rows = preview.valid.map((item) => ({ ...item.data, source_row: item.row }));
+    if (preview.type === 'transactions') {
+      const problems = [];
+      preview.valid.forEach((item, index) => {
+        const reasons = validateTransactionData(item.data);
+        const row = modalRoot.querySelector(`[data-preview-index="${index}"]`);
+        if (row) {
+          row.classList.toggle('is-invalid', reasons.length > 0);
+          row.title = reasons.join('; ');
+        }
+        if (reasons.length) problems.push(index + 1);
+      });
+      if (problems.length) {
+        const shown = problems.slice(0, 5).join(', ');
+        showImportError(`Perbaiki dulu baris yang ditandai merah (baris ${shown}${problems.length > 5 ? ', …' : ''}) sebelum import.`);
+        refreshImportSummary();
+        return;
+      }
+      rows = preview.valid.map((item) => ({
+        kind: item.data.kind,
+        title: String(item.data.title || '').trim(),
+        category: String(item.data.category || '').trim() || 'Lainnya',
+        amount: Number(item.data.amount),
+        date: item.data.date,
+        note: String(item.data.note || '').trim(),
+        source_row: item.row,
+      }));
+    }
     button.disabled = true;
     button.textContent = 'Mengimpor…';
-    const errorNode = modalRoot.querySelector('[data-import-error]');
-    if (errorNode) errorNode.hidden = true;
     try {
       const action = preview.type === 'reminders' ? 'reminders/import' : 'transactions/import';
-      const result = await api(action, { rows: preview.valid.map((item) => ({ ...item.data, source_row: item.row })) });
+      const result = await api(action, { rows });
       const type = preview.type;
+      const skippedRows = Number(result.skipped || 0) + preview.invalid.length;
       closeModal();
       state.importPreview = null;
       state.dashboard = null;
@@ -931,15 +1286,14 @@
         state.report = null;
         state.reportKey = '';
         state.transactionFilter = 'all';
-        const latestDate = preview.valid.reduce((latest, item) => item.data.date > latest ? item.data.date : latest, '');
+        const latestDate = rows.reduce((latest, row) => (row.date > latest ? row.date : latest), '');
         if (latestDate) state.financeMonth = latestDate.slice(0, 7);
       }
       await refreshPage(true);
       const imported = Number(result.imported || 0);
-      const skipped = Number(result.skipped || 0) + preview.invalid.length;
-      showToast(`${imported} ${type === 'reminders' ? 'pengingat' : 'transaksi'} berhasil diimpor${skipped ? `; ${skipped} baris dilewati` : ''}.`, skipped ? 'error' : 'success');
+      showToast(`${imported} ${type === 'reminders' ? 'pengingat' : 'transaksi'} berhasil diimpor${skippedRows ? `; ${skippedRows} baris dilewati` : ''}.`, skippedRows ? 'error' : 'success');
     } catch (error) {
-      if (errorNode) { errorNode.textContent = error.message || 'Data gagal diimpor.'; errorNode.hidden = false; }
+      showImportError(error.message || 'Data gagal diimpor.');
       button.disabled = false;
       button.textContent = `Import ${preview.valid.length} baris`;
     }
@@ -1745,7 +2099,11 @@
     if (action === 'toggle-login-theme') setLoginTheme(state.loginTheme === 'dark' ? 'light' : 'dark');
     else if (action === 'open-import') openImportModal(actionButton.dataset.importType);
     else if (action === 'download-import-template') downloadImportTemplate(actionButton.dataset.importType);
+    else if (action === 'copy-import-sample') await copyImportSample();
+    else if (action === 'read-import-clipboard') await pasteFromClipboard();
+    else if (action === 'clear-import-paste') clearImportPaste();
     else if (action === 'read-import-paste') await handleImportPaste();
+    else if (action === 'remove-import-row') removeImportRow(Number(actionButton.dataset.index));
     else if (action === 'confirm-import') await confirmImport(actionButton);
     else if (action === 'download-report') downloadReportCsv();
     else if (action === 'report-pick-category') {
@@ -1861,6 +2219,21 @@
     } else if (action === 'edit-member-phone') {
       openEditPhoneModal(actionButton.dataset.id, actionButton.dataset.name || 'anggota', actionButton.dataset.phone || '');
     }
+  });
+
+  // Tempelan & sel pratinjau: perbarui hitungan baris dan validasi tanpa render ulang.
+  document.addEventListener('input', (event) => {
+    if (event.target.matches('[data-import-paste]')) {
+      updateImportPasteMeta();
+      return;
+    }
+    if (event.target.matches('[data-preview-field]')) applyPreviewEdit(event.target);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (!event.target.matches('[data-import-paste]') || !(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
+    event.preventDefault();
+    handleImportPaste();
   });
 
   document.addEventListener('change', async (event) => {

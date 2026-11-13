@@ -12,7 +12,7 @@ Website pribadi bergaya dashboard merchant/fintech: ringkas, bersih, dengan akse
 - **Bukti gambar:** foto nota, struk, transfer, atau kondisi barang bisa dilampirkan pada uang masuk/keluar maupun pengingat. Gambar **dikompres dulu di HP/browser** (maksimal 1600 px, ± 20–500 KB) lalu dikompres lagi di server, baru disimpan ke database. Fitur ini **opsional**: kolom bukti bisa dilewati kapan saja, dan bukti bisa ditambah, diganti, atau dihapus belakangan tanpa mengubah catatannya.
 - **Backup & cek database:** menu **Pengaturan** menampilkan jumlah baris tiap tabel dan ukuran bukti gambar yang tersimpan, plus tombol **Unduh backup .sql** untuk menyimpan salinan seluruh data (siap diimpor ke phpMyAdmin).
 - **Pengingat:** simpan judul, tanggal, **jam (opsional)**, kategori, catatan, dan bukti foto opsional, lalu ubah, tandai selesai, atau hapus. Contoh: “Ganti oli motor” tanggal 26 jam 10:30, atau “Bayar tagihan air” tanggal 20 **tanpa jam** (dianggap sepanjang hari).
-- **Import massal Excel:** unggah transaksi atau pengingat dari workbook `.xlsx` atau CSV, pratinjau baris yang valid, dan tambahkan sampai 500 baris sekaligus. Pada menu Keuangan, transaksi juga bisa ditempel langsung dari clipboard Excel.
+- **Import massal Excel & clipboard:** unggah transaksi atau pengingat dari workbook `.xlsx`/CSV, atau **salin-tempel (copy-paste) langsung dari Excel/Google Sheets**. Format cepat 5 kolom (Tanggal, Jenis, Kategori, Jumlah, Keterangan) boleh tanpa baris judul kolom, ada tombol **Tempel dari clipboard**, **Salin format sample Excel**, **Bersihkan teks**, dan **Proses & parse data**. Hasil baca tampil sebagai tabel yang bisa diedit sebelum disimpan; maksimal 500 baris sekali import.
 - **Akun admin dan anggota:** admin dapat menambahkan akun anggota dan mengatur ulang kata sandinya. Setiap pengguna dapat mengganti kata sandi akunnya sendiri.
 - **Notifikasi WhatsApp via Fonnte (opsional):** pengingat bisa dikirim ke nomor WhatsApp atau grup saat pengingat baru disimpan. Endpoint cron tersedia untuk mengirim pesan lagi ketika waktunya tiba, ada tombol **Tes kirim pengingat** di Pengaturan, dan tiap pengingat punya tombol **kirim manual** supaya kabarnya bisa diteruskan kapan saja tanpa menunggu cron.
 - **Bot WhatsApp (tanya laporan & rekap bulanan):** nomor yang didaftarkan admin bisa bertanya langsung lewat WhatsApp — rekap bulan ini/bulan lalu, target dan status minus, kategori tertentu, pengeluaran terbesar, transaksi terakhir, hingga saldo (khusus admin). Bot juga mengirim **laporan bulanan otomatis** di akhir bulan berisi pemasukan, pengeluaran, dan apakah pengeluaran sudah sesuai target atau minus.
@@ -60,12 +60,31 @@ folder yang bisa diakses publik dan jangan bagikan file backup ke orang lain.
 
 ## Import transaksi dan pengingat dari Excel
 
-1. Buka menu **Keuangan** atau **Pengingat**, lalu pilih **Import Excel**.
-2. Unduh template CSV yang sesuai (bisa dibuka dan diedit di Excel), pilih workbook `.xlsx`/CSV, atau—khusus **Keuangan**—salin blok sel Excel termasuk header lalu tempel ke kotak **Tempel data transaksi dari Excel**. Klik **Periksa data tempelan** untuk melihat pratinjau sebelum import. File `.xls` lama perlu disimpan ulang sebagai `.xlsx` atau CSV UTF-8.
-3. Baris pertama harus berisi nama kolom. Untuk transaksi, kolom wajibnya **Jenis**, **Nama transaksi**, **Nominal**, dan **Tanggal**; jenis diisi `Pemasukan`/`Pengeluaran` atau nilai umum seperti `income`/`expense`. Header umum Supabase seperti `type`, `kind`, `title`, `description`, `amount`, `transaction_date`, `category`, dan `note` dikenali. Import Keuangan hanya membuat transaksi uang masuk/keluar; tidak menyentuh pengingat, anggota, kontak, atau pengaturan WhatsApp. ID, `user_id`, dan `created_at` lama tidak dipertahankan; transaksi baru dicatat atas akun yang sedang login. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional — bila dikosongkan pengingatnya menjadi "sepanjang hari" dan kabarnya dikirim sekitar 09:00. Kategori dan catatan bersifat opsional.
-4. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per import, ukuran file maksimal 10 MB.
+Ada dua cara masuk: unggah file, atau salin-tempel dari Excel/Google Sheets. Keduanya berujung pada pratinjau yang sama sebelum data disimpan.
 
-Setiap impor menambahkan catatan baru—mengimpor file atau blok yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan WhatsApp satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang.
+### A. Import cepat dari clipboard (menu Keuangan)
+
+1. Buka **Keuangan**, lalu pilih **Import Excel**. Panel **Import data dari copy paste Excel / clipboard** langsung terbuka.
+2. Salin (Ctrl+C) beberapa baris dari Excel atau Google Sheets. Urutan kolom yang dipakai:
+
+   | Kolom 1 | Kolom 2 | Kolom 3 | Kolom 4 | Kolom 5 |
+   | --- | --- | --- | --- | --- |
+   | **Tanggal** | **Jenis** | **Kategori** | **Jumlah (Rp)** | **Keterangan** |
+   | `2026-07-30` / `30/07/2026` | `Masuk` / `Keluar` | `Makanan` / `Payroll` | `50000` / `50.000` | `Makan siang` / `Gaji` |
+
+3. Tempel ke kotak **Paste data Excel di sini**, atau tekan **Tempel dari clipboard** untuk membacanya otomatis (butuh HTTPS; kalau browser menolak, tempel manual dengan Ctrl+V). Keterangan baris/kolom yang terbaca muncul di bawah kotak.
+4. Tekan **Proses & parse data**. Hasil baca muncul sebagai tabel pratinjau yang **bisa langsung diperbaiki** — tanggal, jenis, keterangan, kategori, dan jumlah diedit di tempat; baris bermasalah ditandai merah dan tidak ikut diimpor. Baris juga bisa dihapus satu per satu.
+5. Tekan **Import n baris** untuk menyimpan. Tombol **Salin format sample Excel** menyalin dua baris contoh siap tempel, sedangkan **Bersihkan teks** mengosongkan kotak paste dan pratinjau.
+
+Pemisah kolom yang diterima: tab (hasil copy Excel/Sheets), titik koma, garis tegak, koma, atau dua spasi atau lebih. Baris judul kolom boleh disertakan atau tidak — kalau ada, otomatis dilewati.
+
+### B. Unggah file `.xlsx`/CSV (Keuangan dan Pengingat)
+
+1. Unduh template CSV yang sesuai (bisa dibuka dan diedit di Excel), atau pilih workbook `.xlsx`/CSV pada kotak **Pilih file Excel atau CSV**. File `.xls` lama perlu disimpan ulang sebagai `.xlsx` atau CSV UTF-8.
+2. Untuk transaksi, kolom wajibnya **Jenis**, **Keterangan/Nama transaksi**, **Jumlah**, dan **Tanggal**; jenis diisi `Pemasukan`/`Pengeluaran` atau `Masuk`/`Keluar`. Header umum seperti `type`, `kind`, `title`, `description`, `amount`, `transaction_date`, `category`, dan `note` dikenali. Import Keuangan hanya membuat transaksi uang masuk/keluar; tidak menyentuh pengingat, anggota, kontak, atau pengaturan WhatsApp. ID, `user_id`, dan `created_at` lama tidak dipertahankan; transaksi baru dicatat atas akun yang sedang login. Untuk pengingat, kolom wajibnya **Judul** dan **Tanggal**; **Jam** opsional — bila dikosongkan pengingatnya menjadi "sepanjang hari" dan kabarnya dikirim sekitar 09:00. Kategori dan catatan bersifat opsional.
+3. Tanggal dapat ditulis `YYYY-MM-DD` atau `DD/MM/YYYY`. Periksa pratinjau; baris yang tidak valid dilewati dan daftar masalahnya ditampilkan. Maksimal 500 baris per import, ukuran file maksimal 10 MB.
+
+Setiap impor menambahkan catatan baru—mengimpor file atau blok yang sama lagi dapat menghasilkan duplikat. Pengingat impor tidak mengirim pesan WhatsApp satu per satu; notifikasi saat waktunya tetap mengikuti jadwal cron yang sudah dipasang. Berkas pemasangan fitur clipboard ada di `update/README.md`.
 
 ## Menyimpan bukti gambar (opsional)
 
@@ -187,7 +206,7 @@ InfinityFree Free tidak menyediakan cron dan akses Telegram Bot API dari PHP hos
 
 File SQL dibatasi sampai 45 MiB agar dapat dikirim lewat Telegram. Backup berisi data sensitif termasuk hash kata sandi dan pengaturan aplikasi; kirim hanya ke chat privat yang aman, jangan ke grup. Telegram bukan penyimpanan end-to-end terenkripsi. Seperti backup manual, gambar bukti hanya dimasukkan jika total ukurannya tidak lebih dari 6 MB; Worker memberi peringatan bila ekspor SQL melewatkan gambar.
 
-Untuk file yang perlu dipasang, lihat `update/README.md`. Folder `update/` membagi file hosting website dan file Cloudflare Worker, serta bisa disegarkan dari source dengan `npm run package:update`.
+Untuk file yang perlu dipasang, lihat `update/README.md`. Folder `update/` sekarang hanya mengemas fitur **import cepat dari clipboard** (`website/index.php`, `website/assets/app.js`, `website/assets/clipboard-import.js`, `website/assets/style.css`) dan bisa disegarkan dari source dengan `npm run package:update`. Paket backup Telegram lama sudah dihapus dari folder ini; sumbernya tetap ada di `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/`.
 
 ## Hubungkan notifikasi WhatsApp (Fonnte)
 

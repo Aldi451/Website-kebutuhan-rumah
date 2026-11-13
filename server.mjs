@@ -13,7 +13,7 @@ const databasePath = path.join(root, 'storage', 'rumahku.sqlite');
 const maxRequestBody = 12 * 1024 * 1024;
 const filesToServe = [
   'index.php', 'api.php', 'cron.php', 'whatsapp.php', 'telegram-backup.php', '.htaccess', 'config.php',
-  'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
+  'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/clipboard-import.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
 ];
 
 console.log('Menyiapkan PHP 8.2 untuk preview lokal…');
