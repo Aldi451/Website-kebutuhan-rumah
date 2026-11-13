@@ -196,6 +196,19 @@ Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO M
 
 Ekstensi PHP yang dipakai: **PDO MySQL/SQLite** (wajib), **GD** (untuk kompresi ulang gambar bukti di server; kalau GD tidak aktif aplikasi tetap berjalan, gambar hanya dikompres di browser), dan **fileinfo** (opsional).
 
+### Kalau setelah memasang update halaman menampilkan kode program
+
+Gejalanya: halaman utama menampilkan tulisan seperti `(() => { 'use strict'; const boot = window.APP_BOOT …` atau `:root { … }` sebagai teks biasa. Penyebabnya bukan database, melainkan **isi `assets/app.js` (atau `style.css`) tertimpa ke `index.php`**, sehingga server hanya mengirim berkas itu sebagai teks.
+
+Perbaikan:
+
+1. Unggah ulang berkas `index.php` dari paket update ke `htdocs/index.php` (root). Pastikan `app.js`, `style.css`, dan `clipboard-import.js` berada di `htdocs/assets/`, bukan di root dan bukan menimpa `index.php`.
+2. Cara paling aman: unggah `update/website-update.zip` ke `htdocs` lalu **Extract** — ZIP-nya sudah membawa struktur `index.php` + `assets/…` yang benar.
+3. Unggah `update/cek-pasang.php` ke `htdocs`, buka `https://domainmu/cek-pasang.php`, lalu ikuti daftar **OK / PERIKSA / MASALAH** yang muncul. Setelah beres, hapus file pemeriksa itu dari hosting.
+4. Muat ulang situs dengan **Ctrl+F5**.
+
+Detail lengkap ada di `update/README.md` (bagian B–D).
+
 ## Backup SQL otomatis ke Telegram (opsional, Worker eksternal)
 
 InfinityFree Free tidak menyediakan cron dan akses Telegram Bot API dari PHP hosting dibatasi. Untuk backup harian, jadwalkan file `cloudflare-backup/worker.js` sebagai Cloudflare Worker; Worker mengambil SQL lewat endpoint PHP bertanda tangan HMAC lalu mengirimnya sebagai dokumen ke chat privat Telegram. Cloudflare Cron berjalan dalam UTC, jadi `0 17 * * *` berarti sekitar pukul 00.00 WIB.
@@ -206,7 +219,7 @@ InfinityFree Free tidak menyediakan cron dan akses Telegram Bot API dari PHP hos
 
 File SQL dibatasi sampai 45 MiB agar dapat dikirim lewat Telegram. Backup berisi data sensitif termasuk hash kata sandi dan pengaturan aplikasi; kirim hanya ke chat privat yang aman, jangan ke grup. Telegram bukan penyimpanan end-to-end terenkripsi. Seperti backup manual, gambar bukti hanya dimasukkan jika total ukurannya tidak lebih dari 6 MB; Worker memberi peringatan bila ekspor SQL melewatkan gambar.
 
-Untuk file yang perlu dipasang, lihat `update/README.md`. Folder `update/` sekarang hanya mengemas fitur **import cepat dari clipboard** (`website/index.php`, `website/assets/app.js`, `website/assets/clipboard-import.js`, `website/assets/style.css`) dan bisa disegarkan dari source dengan `npm run package:update`. Paket backup Telegram lama sudah dihapus dari folder ini; sumbernya tetap ada di `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/`.
+Untuk file yang perlu dipasang, lihat `update/README.md`. Folder `update/` sekarang hanya mengemas fitur **import cepat dari clipboard** (`website/index.php`, `website/assets/app.js`, `website/assets/clipboard-import.js`, `website/assets/style.css`), plus **`website-update.zip`** yang siap diekstrak di `htdocs` dan **`cek-pasang.php`** untuk memeriksa hasil pemasangan. Paket bisa disegarkan dari source dengan `npm run package:update` (sekaligus membuat ulang ZIP). Paket backup Telegram lama sudah dihapus dari folder ini; sumbernya tetap ada di `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/`.
 
 ## Hubungkan notifikasi WhatsApp (Fonnte)
 
