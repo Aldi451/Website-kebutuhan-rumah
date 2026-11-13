@@ -154,11 +154,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .import-upload-box { position: relative; display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 13px 15px; border: 1px dashed #b9cdca; border-radius: 12px; background: #fbfdfc; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
 .import-upload-box:hover { border-color: var(--brand); background: #f6fbf9; }
 .import-file-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.import-paste-box { display: grid; gap: 8px; padding: 12px; border: 1px solid #e6eeee; border-radius: 12px; background: #fbfdfd; }
-.import-paste-box label { color: #43585e; font-size: 10px; font-weight: 700; }
-.import-paste-input { min-height: 100px; max-height: 190px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.5; resize: vertical; }
-.import-paste-box .btn { justify-self: start; }
-.import-paste-box small { color: #899598; font-size: 9px; line-height: 1.5; }
 .import-upload-mark { display: grid; flex: 0 0 auto; place-items: center; width: 39px; height: 39px; border-radius: 11px; color: var(--brand-dark); background: #e4f3ef; }
 .import-upload-mark svg { width: 18px; height: 18px; }
 .import-upload-copy { display: grid; gap: 4px; min-width: 0; }
@@ -177,6 +172,91 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .import-invalid { color: #907c59; font-size: 9px; }
 .import-invalid summary { cursor: pointer; }
 .import-invalid ul { display: grid; gap: 4px; margin: 7px 0 0; padding-left: 18px; line-height: 1.5; }
+
+/* Import cepat dari copy-paste Excel / clipboard */
+.modal-card.modal-import-clipboard { width: min(880px, 100%); }
+.import-modal-body-clipboard { gap: 14px; }
+.clipboard-import { display: grid; gap: 14px; padding: 16px; border: 1px solid #dcefe7; border-radius: 16px; background: #f6fbf9; }
+.clipboard-import-head { display: flex; align-items: flex-start; gap: 12px; }
+.clipboard-import-mark { display: grid; flex: 0 0 auto; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #2f7f6a; background: #e2f3ec; }
+.clipboard-import-mark svg { width: 20px; height: 20px; }
+.clipboard-import-copy { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.clipboard-import-copy h3 { margin: 0; color: #1f6d5b; font: 700 15px 'Plus Jakarta Sans', sans-serif; letter-spacing: -.3px; }
+.clipboard-import-copy p { margin: 0; color: #7c8f8e; font-size: 10.5px; line-height: 1.6; }
+.clipboard-import-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; color: #2c7a63; background: #e6f6ef; font-size: 9.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+.clipboard-import-badge svg { width: 13px; height: 13px; }
+.clipboard-guide { display: flex; align-items: flex-start; gap: 11px; padding: 13px; border: 1px solid #d9ece3; border-radius: 13px; background: #eaf6f1; }
+.clipboard-guide-mark { display: grid; flex: 0 0 auto; place-items: center; width: 27px; height: 27px; border-radius: 50%; color: #fff; background: #2f8a6f; }
+.clipboard-guide-mark svg { width: 15px; height: 15px; }
+.clipboard-guide-body { display: grid; flex: 1; gap: 10px; min-width: 0; }
+.clipboard-guide-body > strong { color: #21705c; font-size: 11px; }
+.clipboard-guide-table { display: grid; overflow: hidden; border: 1px solid #dfeae6; border-radius: 9px; background: #fff; }
+.clipboard-guide-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.clipboard-guide-row + .clipboard-guide-row { border-top: 1px solid #e9f0ee; }
+.clipboard-guide-row span { padding: 8px 9px; font-size: 9.5px; text-align: center; }
+.clipboard-guide-row span + span { border-left: 1px solid #e9f0ee; }
+.clipboard-guide-head { background: #f6f8f8; }
+.clipboard-guide-head span { color: #5b6b72; font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+.clipboard-guide-names span { color: #2f4650; font-size: 11px; font-weight: 700; }
+.clipboard-guide-samples span { color: #b2596b; font-size: 9px; font-style: italic; }
+.clipboard-guide-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; }
+.clipboard-guide-foot p { display: flex; align-items: center; gap: 6px; margin: 0; color: #6e8481; font-size: 9.5px; line-height: 1.5; }
+.clipboard-guide-emoji { font-size: 11px; }
+.clipboard-sample-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border: 1px solid #57b394; border-radius: 999px; color: #20715c; background: #fff; font-size: 9.5px; font-weight: 700; white-space: nowrap; transition: background .15s ease, border-color .15s ease; }
+.clipboard-sample-button:hover { border-color: #2f8a6f; background: #f1fbf6; }
+.clipboard-sample-button svg { width: 13px; height: 13px; }
+.clipboard-paste { display: grid; gap: 8px; }
+.clipboard-paste-label { color: #40565e; font-size: 11px; font-weight: 700; }
+.clipboard-paste-input { min-height: 168px; max-height: 300px; padding: 12px 14px; border-color: #e2ebe8; border-radius: 12px; background: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.65; resize: vertical; }
+.clipboard-paste-meta { margin: 0; color: #93a2a3; font-size: 9.5px; line-height: 1.5; }
+.clipboard-paste-meta.is-ready { color: #2f8a6f; font-weight: 600; }
+.clipboard-paste-meta.is-error { color: #b2596b; font-weight: 600; }
+.clipboard-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; margin-top: 2px; }
+.clipboard-paste-button { color: #2f7f8a; border-color: #b9dbe0; background: #fff; }
+.clipboard-paste-button:hover { color: #1f6470; border-color: #7fbfc8; background: #f4fbfc; }
+.clipboard-paste-button span { color: #9db0b4; font-weight: 500; }
+.clipboard-actions-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.clipboard-actions-side .btn { min-height: 38px; }
+.clipboard-actions-side .btn-soft { color: #7b8b90; background: #eef2f2; }
+.clipboard-actions-side .btn-soft:hover { color: #4d5f66; background: #e4ebeb; }
+.clipboard-actions-side .btn-soft svg { width: 13px; height: 13px; }
+.import-file-row { display: grid; gap: 8px; }
+.import-file-label { color: #8c999f; font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
+.import-file-row .btn-link { justify-self: start; }
+.import-file-row .btn-link svg { width: 13px; height: 13px; }
+.import-preview-hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: #7f8f92; font-size: 9.5px; line-height: 1.55; }
+.import-preview-hint svg { flex: 0 0 auto; width: 13px; height: 13px; margin-top: 1px; }
+.import-preview-note { margin: 0; color: #98a6a7; font-size: 9px; line-height: 1.5; }
+.import-result-line.has-problem strong { color: #a2603f; }
+.import-table-edit { min-width: 560px; }
+.import-table-edit td { overflow: visible; padding: 5px 6px; }
+.import-table-edit th { font-size: 8px; }
+.import-cell-input { width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid transparent; border-radius: 7px; color: #47595f; background: transparent; font-size: 10px; transition: border .15s ease, background .15s ease; }
+.import-cell-input:hover { border-color: #e3ecea; background: #fbfdfc; }
+.import-cell-input:focus { border-color: #83bfb4; background: #fff; box-shadow: 0 0 0 2px rgba(8,126,130,.08); outline: none; }
+.import-cell-date { min-width: 118px; }
+.import-cell-amount { min-width: 92px; text-align: right; }
+.import-table-edit tr.is-invalid { background: #fff6f4; }
+.import-table-edit tr.is-invalid .import-cell-input { border-color: #f2d3ca; }
+.import-row-action { width: 34px; text-align: center; }
+.import-row-remove { display: grid; place-items: center; width: 25px; height: 25px; margin: auto; border: 1px solid #f0e2de; border-radius: 7px; color: #b4736a; background: #fff; }
+.import-row-remove:hover { color: #a13d2f; border-color: #ecc6bd; background: #fff5f2; }
+.import-row-remove svg { width: 12px; height: 12px; }
+
+@media (max-width: 700px) {
+  .clipboard-import { padding: 13px; }
+  .clipboard-import-head { gap: 10px; }
+  .clipboard-import-badge { display: none; }
+  .clipboard-guide { gap: 8px; padding: 11px; }
+  .clipboard-guide-table { overflow-x: auto; }
+  .clipboard-guide-row { min-width: 420px; }
+  .clipboard-guide-row span { padding: 7px 5px; font-size: 8.5px; }
+  .clipboard-guide-names span { font-size: 9.5px; }
+  .clipboard-guide-samples span { font-size: 8px; }
+  .clipboard-guide-foot { flex-direction: column; align-items: flex-start; }
+  .clipboard-actions, .clipboard-actions-side { flex-direction: column; align-items: stretch; }
+  .clipboard-actions-side .btn, .clipboard-paste-button { width: 100%; }
+}
 
 /* Cards and dashboard */
 .grid { display: grid; gap: 17px; }

@@ -1,36 +1,56 @@
-# Paket update — backup harian ke Telegram
+# Paket update — import cepat dari clipboard (copy-paste Excel)
 
-Folder ini mengumpulkan file runtime yang perlu dipasang untuk fitur backup otomatis. Isi `website/` untuk InfinityFree; isi `cloudflare-worker/` untuk Worker. **Jangan upload seluruh folder `update/` ke `htdocs` sebagai aplikasi terpisah.** File `update/.htaccess` menolak akses web langsung jika folder ini tidak sengaja ikut terunggah.
+Folder ini berisi file runtime untuk fitur **Import data dari copy paste Excel / clipboard** pada menu Keuangan. Hanya file yang berubah pada fitur ini yang dikemas; file lain di hosting tidak perlu disentuh. **Jangan upload seluruh folder `update/` ke `htdocs`.** `update/.htaccess` menolak akses web langsung jika folder ini tidak sengaja ikut terunggah.
 
-## A. Pasang pada website InfinityFree
+## A. File yang perlu disalin ke hosting
 
-Salin hanya file berikut ke document root situs (`htdocs`):
+Salin isi `website/` ke document root situs (`htdocs`), dengan susunan yang sama:
 
-| File paket | Tujuan di hosting |
-| --- | --- |
-| `website/telegram-backup.php` | `htdocs/telegram-backup.php` |
-| `website/includes/app.php` | `htdocs/includes/app.php` |
+| File paket | Tujuan di hosting | Status |
+| --- | --- | --- |
+| `website/index.php` | `htdocs/index.php` | diganti (versi aset naik, memuat `clipboard-import.js`) |
+| `website/assets/app.js` | `htdocs/assets/app.js` | diganti (panel paste, pratinjau bisa diedit) |
+| `website/assets/clipboard-import.js` | `htdocs/assets/clipboard-import.js` | **baru** |
+| `website/assets/style.css` | `htdocs/assets/style.css` | diganti (gaya panel clipboard) |
 
-Jangan timpa `config.php` milikmu. Tambahkan baris dari `website/config-snippet.txt` ke dalam `return [ ... ]` pada `config.php` yang sudah ada. Buat secret acak sendiri (minimal 32 karakter) dan pakai nilai yang sama nanti untuk secret `BACKUP_HMAC_SECRET` di Cloudflare. Contoh generator lokal: `python -c "import secrets; print(secrets.token_hex(32))"`. Jangan kirim/commit secret tersebut.
+Yang **tidak** perlu diubah: `config.php`, `api.php`, `includes/`, `database/`, dan `assets/importer.js` (pembaca file `.xlsx`/CSV tetap sama). Fitur ini hanya memakai endpoint `transactions/import` yang sudah ada.
 
-## B. Pasang Worker di Cloudflare
+Setelah menyalin, buka situs lalu tekan **Ctrl+F5** (atau muat ulang paksa) agar browser memakai `app.js`/`style.css` versi baru.
 
-Gunakan isi `cloudflare-worker/` sebagai project Worker. Set `BACKUP_URL` ke alamat HTTPS langsung `https://DOMAINMU/telegram-backup.php`, lalu set secrets `BACKUP_HMAC_SECRET`, `TELEGRAM_BOT_TOKEN`, dan `TELEGRAM_CHAT_ID`. Set Cron Trigger sesuai `cloudflare-worker/wrangler.toml`: `0 17 * * *` UTC, kira-kira pukul 00.00 WIB. Token Telegram hanya disimpan di Cloudflare Secrets. Bot harus sudah di-`/start` lewat chat pribadi.
+## B. Cara memakai fitur
 
-Baca `cloudflare-worker/.dev.vars.example` hanya sebagai contoh untuk uji lokal; jangan upload atau commit file `.dev.vars` yang berisi nilai asli.
+1. Buka menu **Keuangan** → **Import Excel**.
+2. Salin (Ctrl+C) baris data dari Excel/Google Sheets. Urutan kolom yang dipakai (boleh tanpa baris judul kolom):
 
-## C. File yang tidak perlu diunggah ke hosting
+   | Kolom 1 | Kolom 2 | Kolom 3 | Kolom 4 | Kolom 5 |
+   | --- | --- | --- | --- | --- |
+   | Tanggal | Jenis | Kategori | Jumlah (Rp) | Keterangan |
+   | `2026-07-30` / `30/07/2026` | `Masuk` / `Keluar` | `Makanan` / `Payroll` | `50000` / `50.000` | `Makan siang` / `Gaji` |
 
-- `cloudflare-worker/worker.js`, `wrangler.toml`, dan `.dev.vars.example` dipakai di Cloudflare, bukan di `htdocs`.
-- `website/config-snippet.txt` hanya panduan edit manual `config.php`.
-- Tidak ada perubahan `assets/` untuk fitur backup ini.
+3. Tempel ke kotak **Paste data Excel di sini** (Ctrl+V), atau tekan **Tempel dari clipboard** untuk membaca clipboard otomatis.
+4. Tekan **Proses & parse data**. Hasil baca tampil dalam tabel yang **bisa langsung diedit** (tanggal, jenis, keterangan, kategori, jumlah) dan baris yang salah ditandai merah.
+5. Tekan **Import n baris** untuk menyimpan ke database.
 
-Backup berisi informasi sensitif, termasuk hash password dan pengaturan aplikasi. Kirim hanya ke chat pribadi Telegram. Ukuran file dibatasi 45 MiB; bukti foto dapat dilewati oleh dump aplikasi jika total bukti melebihi 6 MB.
+Tombol **Salin format sample Excel** menyalin dua baris contoh (dipisah tab) supaya bisa ditempel ke Excel sebagai gambaran format. Tombol **Bersihkan teks** mengosongkan kotak paste dan pratinjau.
 
-## Refresh paket
+Catatan:
 
-File sumber tetap berada di `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/`. Setelah sumber berubah, jalankan dari root repository:
+- Baris judul kolom boleh disertakan atau tidak; kalau ada, otomatis dilewati. Header umum (`Tanggal`, `Jenis`, `Kategori`, `Jumlah (Rp)`, `Keterangan`, `type`, `kind`, `title`, `amount`, `transaction_date`, `category`, `note`) tetap dikenali.
+- Pemisah kolom yang diterima: tab (hasil copy Excel/Sheets), titik koma, garis tegak, koma, atau dua spasi/lebih.
+- Tanggal: `YYYY-MM-DD`, `DD/MM/YYYY`, atau nomor seri Excel. Nominal: `25000`, `25.000`, `Rp 25.000`.
+- Maksimal 500 baris sekali import. Setiap import membuat baris baru; data yang sama diimpor dua kali akan menjadi ganda.
+- Akses clipboard otomatis butuh HTTPS. Jika browser menolak, tempel manual dengan Ctrl+V di kotak paste.
+
+## C. Fitur lain yang tidak lagi dikemas di sini
+
+Paket lama (backup harian ke Telegram) sudah dihapus dari folder ini sesuai permintaan agar `update/` hanya berisi fitur terbaru. File sumbernya **tidak dihapus** dari repository, masih ada di root: `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/`. Bila paket backup diperlukan lagi, buat ulang dari sumber tersebut.
+
+## D. Menyegarkan paket
+
+Setelah file sumber di root berubah, jalankan dari root repository:
 
 ```sh
 npm run package:update
 ```
+
+Perintah ini juga menghapus sisa paket lama sehingga `update/website/` selalu mencerminkan fitur yang sedang dikemas.
