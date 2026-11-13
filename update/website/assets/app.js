@@ -33,6 +33,9 @@
     reportCategory: '',
     reportKind: 'all',
     reportCompare: true,
+    reportComparePeriod: 'previous',
+    reportCompareStart: `${currentMonth()}-01`,
+    reportCompareEnd: localDateValue(),
     reportCustomStart: `${currentMonth()}-01`,
     reportCustomEnd: localDateValue(),
     importType: null,
@@ -1553,6 +1556,11 @@
       params.set('start', state.reportCustomStart);
       params.set('end', state.reportCustomEnd);
     }
+    params.set('compare_period', state.reportComparePeriod);
+    if (state.reportComparePeriod === 'custom') {
+      params.set('compare_start', state.reportCompareStart);
+      params.set('compare_end', state.reportCompareEnd);
+    }
     return params.toString();
   }
 
@@ -1615,15 +1623,26 @@
       else if (filter === 'category') state.reportCategory = control.value;
       else if (filter === 'kind') state.reportKind = control.value;
       else if (filter === 'compare') state.reportCompare = control.checked;
+      else if (filter === 'compare-period') state.reportComparePeriod = control.value;
       else if (filter === 'start') state.reportCustomStart = control.value;
       else if (filter === 'end') state.reportCustomEnd = control.value;
+      else if (filter === 'compare-start') state.reportCompareStart = control.value;
+      else if (filter === 'compare-end') state.reportCompareEnd = control.value;
 
       const errorNode = content.querySelector('[data-report-error]');
+      let filterError = '';
       if (state.reportPeriod === 'custom' && (!state.reportCustomStart || !state.reportCustomEnd || state.reportCustomStart > state.reportCustomEnd)) {
+        filterError = !state.reportCustomStart || !state.reportCustomEnd
+          ? 'Lengkapi tanggal awal dan akhir laporan.'
+          : 'Tanggal akhir laporan tidak boleh sebelum tanggal awal.';
+      } else if (state.reportCompare && state.reportComparePeriod === 'custom' && (!state.reportCompareStart || !state.reportCompareEnd || state.reportCompareStart > state.reportCompareEnd)) {
+        filterError = !state.reportCompareStart || !state.reportCompareEnd
+          ? 'Lengkapi tanggal awal dan akhir pembanding.'
+          : 'Tanggal akhir pembanding tidak boleh sebelum tanggal awal.';
+      }
+      if (filterError) {
         if (errorNode) {
-          errorNode.textContent = !state.reportCustomStart || !state.reportCustomEnd
-            ? 'Lengkapi tanggal awal dan akhir.'
-            : 'Tanggal akhir tidak boleh sebelum tanggal awal.';
+          errorNode.textContent = filterError;
           errorNode.hidden = false;
         }
         return;
@@ -1787,11 +1806,6 @@
       if (up && up.difference > 0) items.push(`${up.name} paling naik: ${signedMoney(up.difference)} (${reportPercentChange(up.currentValue, up.previousValue)}) dibanding periode sepadan.`);
       if (down && down.difference < 0 && (!up || down.name !== up.name)) items.push(`${down.name} paling turun: ${signedMoney(down.difference)} (${reportPercentChange(down.currentValue, down.previousValue)}).`);
     }
-    if (data.weekday_summary && kind === 'expense') {
-      const weekdaySpend = Number(data.weekday_summary.expense || 0);
-      const todaySpend = Number(summary.expense || 0);
-      items.push(`Hari yang sama minggu lalu ${money(weekdaySpend)}; hari ini ${money(todaySpend)} (${reportPercentChange(todaySpend, weekdaySpend)}).`);
-    }
     const projection = data.projection;
     if (projection && kind !== 'income') {
       items.push(`Kalau laju ${money(projection.daily_expense)} per hari berlanjut, uang keluar bulan ini sekitar ${money(projection.projected_expense)}${projection.target ? ` dari target ${money(projection.target)}` : ''}.`);
@@ -1828,7 +1842,9 @@
     if (state.reportCategory && !categoryOptions.includes(state.reportCategory)) categoryOptions.push(state.reportCategory);
     categoryOptions.sort((a, b) => a.localeCompare(b, 'id'));
     const categoryOptionMarkup = categoryOptions.map((category) => `<option value="${escapeHtml(category)}"${state.reportCategory === category ? ' selected' : ''}>${escapeHtml(category)}</option>`).join('');
-    const customRangeMarkup = state.reportPeriod === 'custom' ? `<div class="report-custom-range"><div class="field"><label for="report-start">Dari tanggal</label><input class="input" id="report-start" type="date" data-report-filter="start" value="${escapeHtml(state.reportCustomStart)}" required></div><span class="report-range-separator">sampai</span><div class="field"><label for="report-end">Sampai tanggal</label><input class="input" id="report-end" type="date" data-report-filter="end" value="${escapeHtml(state.reportCustomEnd)}" required></div></div>` : '';
+    const customRangeMarkup = state.reportPeriod === 'custom' ? `<div class="report-custom-range"><div class="field"><label for="report-start">Dari tanggal laporan</label><input class="input" id="report-start" type="date" data-report-filter="start" value="${escapeHtml(state.reportCustomStart)}" required></div><span class="report-range-separator">sampai</span><div class="field"><label for="report-end">Sampai tanggal laporan</label><input class="input" id="report-end" type="date" data-report-filter="end" value="${escapeHtml(state.reportCustomEnd)}" required></div></div>` : '';
+    const compareCustomRangeMarkup = state.reportComparePeriod === 'custom' ? `<div class="report-custom-range report-compare-custom-range"><div class="field"><label for="report-compare-start">Tanggal pembanding dari</label><input class="input" id="report-compare-start" type="date" data-report-filter="compare-start" value="${escapeHtml(state.reportCompareStart)}" required></div><span class="report-range-separator">sampai</span><div class="field"><label for="report-compare-end">Tanggal pembanding sampai</label><input class="input" id="report-compare-end" type="date" data-report-filter="compare-end" value="${escapeHtml(state.reportCompareEnd)}" required></div></div>` : '';
+    const comparePeriodMarkup = `<div class="report-compare-controls"><div class="field"><label for="report-compare-period">Periode pembanding</label><select class="select" id="report-compare-period" data-report-filter="compare-period"><option value="previous"${state.reportComparePeriod === 'previous' ? ' selected' : ''}>Periode sebelumnya (otomatis)</option><option value="today"${state.reportComparePeriod === 'today' ? ' selected' : ''}>Today · hari ini</option><option value="month_to_date"${state.reportComparePeriod === 'month_to_date' ? ' selected' : ''}>MTD · bulan ini sampai hari ini</option><option value="year_to_date"${state.reportComparePeriod === 'year_to_date' ? ' selected' : ''}>YTD · tahun ini sampai hari ini</option><option value="last_month_to_date"${state.reportComparePeriod === 'last_month_to_date' ? ' selected' : ''}>LMTD · bulan lalu sampai tanggal yang sama</option><option value="last_year_to_date"${state.reportComparePeriod === 'last_year_to_date' ? ' selected' : ''}>LYTD · tahun lalu sampai tanggal yang sama</option><option value="custom"${state.reportComparePeriod === 'custom' ? ' selected' : ''}>Pilih tanggal sendiri</option></select></div><p class="report-compare-help">Pilih periode yang mau dijadikan pembanding. Rentang tanggal pastinya akan tampil di ringkasan perbandingan.</p></div>${compareCustomRangeMarkup}`;
     const currentRange = reportRangeLabel(currentPeriod);
     const previousRange = reportRangeLabel(previousPeriod);
     const averageDailySpend = Number(currentPeriod.days) > 0 ? Number(summary.expense || 0) / Number(currentPeriod.days) : 0;
@@ -1845,13 +1861,13 @@
       const share = reportShare(currentValue, measureTotal);
       const extraKind = state.reportKind === 'all' && Number(item.income || 0) > 0 ? ` · masuk ${money(item.income)}` : '';
       const previousDetail = state.reportCompare
-        ? `<small>${share} porsi · sebelumnya ${money(previousValue)} <b>${signedMoney(currentValue - previousValue)} · ${escapeHtml(reportPercentChange(currentValue, previousValue))}</b></small>`
+        ? `<small>${share} porsi · pembanding ${money(previousValue)} <b>${signedMoney(currentValue - previousValue)} · ${escapeHtml(reportPercentChange(currentValue, previousValue))}</b></small>`
         : `<small>${share} porsi · ${Number(item.count || 0)} transaksi${extraKind}</small>`;
       return `<button class="report-category-row" type="button" data-action="report-pick-category" data-category="${escapeHtml(categoryName)}"><div class="report-category-main"><div class="report-category-name"><strong>${escapeHtml(categoryName)}</strong><span>${Number(item.count || 0)} transaksi${extraKind}</span></div><div class="report-category-bar"><span style="width:${width}%"></span></div></div><div class="report-category-amount"><strong>${money(currentValue)}</strong>${previousDetail}</div></button>`;
     }).join('');
     const categoryMeasureLabel = measureKind === 'income' ? 'Uang masuk' : 'Uang keluar';
-    const weekdayMarkup = data.weekday_summary ? `<article class="report-comparison-metric"><span>Vs hari yang sama minggu lalu</span><strong class="${Number(summary.expense || 0) > Number(data.weekday_summary.expense || 0) ? 'up' : Number(summary.expense || 0) < Number(data.weekday_summary.expense || 0) ? 'down' : 'flat'}">${signedMoney(Number(summary.expense || 0) - Number(data.weekday_summary.expense || 0))}</strong><small>${money(data.weekday_summary.expense || 0)} → ${money(summary.expense || 0)} <b>${escapeHtml(reportPercentChange(summary.expense, data.weekday_summary.expense))}</b></small></article>` : '';
-    const comparisonMarkup = state.reportCompare && previous ? `<section class="card report-comparison-card"><div class="card-head"><div><h2 class="card-title">Perbandingan periode</h2><p class="card-subtitle">${escapeHtml(currentRange)} <span>vs</span> ${escapeHtml(previousRange)} · ${Number(currentPeriod.days || 0)} hari dibanding ${Number(previousPeriod?.days || 0)} hari</p></div><span class="report-comparison-icon">${icon('repeat')}</span></div><div class="report-comparison-grid">${reportComparisonMetric('Uang masuk', summary.income, previous.income)}${reportComparisonMetric('Uang keluar', summary.expense, previous.expense, money, true)}${reportComparisonMetric('Selisih tercatat', summary.net, previous.net)}${reportComparisonMetric('Jumlah transaksi', summary.count, previous.count, (value) => new Intl.NumberFormat('id-ID').format(value))}${weekdayMarkup}</div><p class="report-accuracy-note">${state.reportPeriod === 'custom' ? 'Rentang pembanding memakai jumlah hari yang sama tepat sebelum tanggal awal.' : 'Perbandingan memakai rentang yang sepadan; bulan/tahun berjalan dibanding sampai tanggal yang sama.'} Rata-rata uang keluar per hari kalender: <strong>${money(averageDailySpend)}</strong> (sebelumnya ${money(previousAverageDailySpend)}). Catatan ada di ${Number(currentPeriod.active_days || 0)} dari ${Number(currentPeriod.days || 0)} hari.</p></section>` : '';
+
+    const comparisonMarkup = state.reportCompare && previous ? `<section class="card report-comparison-card"><div class="card-head"><div><h2 class="card-title">Perbandingan periode</h2><p class="card-subtitle">${escapeHtml(currentRange)} <span>vs</span> ${escapeHtml(previousRange)} · ${Number(currentPeriod.days || 0)} hari dibanding ${Number(previousPeriod?.days || 0)} hari</p></div><span class="report-comparison-icon">${icon('repeat')}</span></div><div class="report-comparison-grid">${reportComparisonMetric('Uang masuk', summary.income, previous.income)}${reportComparisonMetric('Uang keluar', summary.expense, previous.expense, money, true)}${reportComparisonMetric('Selisih tercatat', summary.net, previous.net)}${reportComparisonMetric('Jumlah transaksi', summary.count, previous.count, (value) => new Intl.NumberFormat('id-ID').format(value))}</div><p class="report-accuracy-note">${state.reportComparePeriod === 'previous' ? 'Periode pembanding otomatis mengikuti rentang sebelumnya.' : 'Periode pembanding mengikuti pilihan di atas; tanggal pastinya tercantum di judul kartu.'} Rata-rata uang keluar per hari kalender: <strong>${money(averageDailySpend)}</strong> (sebelumnya ${money(previousAverageDailySpend)}). Catatan ada di ${Number(currentPeriod.active_days || 0)} dari ${Number(currentPeriod.days || 0)} hari.</p></section>` : '';
     const insightItems = reportInsightItems(data);
     const insightMarkup = insightItems.length ? `<section class="card report-insight-card"><div class="card-head"><div><h2 class="card-title">Yang perlu dilihat</h2><p class="card-subtitle">Ringkasan otomatis dari porsi kategori, perbandingan, dan kelengkapan catatan</p></div><span class="report-comparison-icon">${icon('spark')}</span></div><ul class="report-insight-list">${insightItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></section>` : '';
     const projection = data.projection;
@@ -1860,7 +1876,7 @@
     const highlightMarkup = highlights.length ? `<section class="card report-highlight-card"><div class="card-head"><div><h2 class="card-title">Transaksi terbesar</h2><p class="card-subtitle">Membantu melihat lonjakan yang menggerakkan total</p></div><span class="report-category-icon">${icon('receipt')}</span></div><div class="report-highlight-list">${highlights.map((item) => `<div class="report-highlight-row"><span class="transaction-glyph${item.kind === 'income' ? '' : ' expense'}">${icon(item.kind === 'income' ? 'arrowDown' : 'arrowUp')}</span><span class="transaction-main"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(dateLabel(item.transaction_date, { day: 'numeric', month: 'short' }))}</small></span><span class="transaction-amount${item.kind === 'income' ? '' : ' expense'}">${item.kind === 'income' ? '+' : '−'} ${money(item.amount)}</span></div>`).join('')}</div></section>` : '';
 
     return `<div class="page-heading report-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> analisis rumah</span><h1>Laporan keuangan</h1><p>Telusuri uang masuk dan keluar berdasarkan kategori, lalu bandingkan dengan periode yang sepadan.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="download-report"${data.summary ? '' : ' disabled'}>${icon('download')} Unduh CSV</button></div></div>
-      <section class="card report-filter-card"><div class="report-filter-grid"><div class="field"><label for="report-period">Periode laporan</label><select class="select" id="report-period" data-report-filter="period"><option value="today"${state.reportPeriod === 'today' ? ' selected' : ''}>Hari ini</option><option value="month_to_date"${state.reportPeriod === 'month_to_date' ? ' selected' : ''}>Bulan ini sampai hari ini</option><option value="last_month"${state.reportPeriod === 'last_month' ? ' selected' : ''}>Bulan lalu</option><option value="year_to_date"${state.reportPeriod === 'year_to_date' ? ' selected' : ''}>Tahun ini sampai hari ini</option><option value="last_year"${state.reportPeriod === 'last_year' ? ' selected' : ''}>Tahun lalu</option><option value="custom"${state.reportPeriod === 'custom' ? ' selected' : ''}>Rentang tanggal khusus</option></select></div><div class="field"><label for="report-kind">Jenis transaksi</label><select class="select" id="report-kind" data-report-filter="kind"><option value="all"${state.reportKind === 'all' ? ' selected' : ''}>Semua jenis</option><option value="income"${state.reportKind === 'income' ? ' selected' : ''}>Uang masuk</option><option value="expense"${state.reportKind === 'expense' ? ' selected' : ''}>Uang keluar</option></select></div><div class="field"><label for="report-category">Kategori</label><select class="select" id="report-category" data-report-filter="category"><option value="">Semua kategori</option>${categoryOptionMarkup}</select></div></div>${customRangeMarkup}<div class="report-filter-footer"><label class="report-compare-toggle"><input type="checkbox" data-report-filter="compare"${state.reportCompare ? ' checked' : ''}><span class="report-toggle-track" aria-hidden="true"></span><span>Bandingkan dengan periode sebelumnya</span></label><span class="report-period-meta">${escapeHtml(currentPeriod.label || 'Memuat periode…')} · ${escapeHtml(currentRange)}${state.reportCompare && previousPeriod ? ` <span>dibanding</span> ${escapeHtml(previousRange)}` : ''}</span></div><p class="error-text report-filter-error" data-report-error hidden></p></section>
+      <section class="card report-filter-card"><div class="report-filter-grid"><div class="field"><label for="report-period">Periode laporan</label><select class="select" id="report-period" data-report-filter="period"><option value="today"${state.reportPeriod === 'today' ? ' selected' : ''}>Today · hari ini</option><option value="month_to_date"${state.reportPeriod === 'month_to_date' ? ' selected' : ''}>MTD · bulan ini sampai hari ini</option><option value="last_month_to_date"${state.reportPeriod === 'last_month_to_date' ? ' selected' : ''}>LMTD · bulan lalu sampai tanggal yang sama</option><option value="last_month"${state.reportPeriod === 'last_month' ? ' selected' : ''}>Bulan lalu (penuh)</option><option value="year_to_date"${state.reportPeriod === 'year_to_date' ? ' selected' : ''}>YTD · tahun ini sampai hari ini</option><option value="last_year_to_date"${state.reportPeriod === 'last_year_to_date' ? ' selected' : ''}>LYTD · tahun lalu sampai tanggal yang sama</option><option value="last_year"${state.reportPeriod === 'last_year' ? ' selected' : ''}>Tahun lalu (penuh)</option><option value="custom"${state.reportPeriod === 'custom' ? ' selected' : ''}>Rentang tanggal khusus</option></select></div><div class="field"><label for="report-kind">Jenis transaksi</label><select class="select" id="report-kind" data-report-filter="kind"><option value="all"${state.reportKind === 'all' ? ' selected' : ''}>Semua jenis</option><option value="income"${state.reportKind === 'income' ? ' selected' : ''}>Uang masuk</option><option value="expense"${state.reportKind === 'expense' ? ' selected' : ''}>Uang keluar</option></select></div><div class="field"><label for="report-category">Kategori</label><select class="select" id="report-category" data-report-filter="category"><option value="">Semua kategori</option>${categoryOptionMarkup}</select></div></div>${customRangeMarkup}${comparePeriodMarkup}<div class="report-filter-footer"><label class="report-compare-toggle"><input type="checkbox" data-report-filter="compare"${state.reportCompare ? ' checked' : ''}><span class="report-toggle-track" aria-hidden="true"></span><span>Bandingkan periode laporan</span></label><span class="report-period-meta">${escapeHtml(currentPeriod.label || 'Memuat periode…')} · ${escapeHtml(currentRange)}${state.reportCompare && previousPeriod ? ` <span>vs</span> ${escapeHtml(previousRange)}` : ''}</span></div><p class="error-text report-filter-error" data-report-error hidden></p></section>
       <div class="grid report-summary-grid"><article class="card report-stat-card"><span class="report-stat-label"><i class="legend-dot"></i> Uang masuk</span><strong>${money(summary.income)}</strong><small>${Number(summary.income_count || 0)} transaksi masuk</small></article><article class="card report-stat-card"><span class="report-stat-label"><i class="legend-dot expense"></i> Uang keluar</span><strong>${money(summary.expense)}</strong><small>Rata-rata ${money(averageDailySpend)} / hari kalender</small></article><article class="card report-stat-card"><span class="report-stat-label">Selisih tercatat</span><strong class="${Number(summary.net || 0) < 0 ? 'negative' : ''}">${money(summary.net)}</strong><small>Masuk dikurangi keluar</small></article><article class="card report-stat-card"><span class="report-stat-label">Hari tercatat</span><strong>${Number(currentPeriod.active_days || 0)}</strong><small>dari ${Number(currentPeriod.days || 0)} hari periode · ${Number(summary.count || 0)} transaksi</small></article></div>
       ${insightMarkup}
       ${comparisonMarkup}
@@ -1880,6 +1896,7 @@
     const rows = [
       ['Periode laporan', data.current_period?.label || ''],
       ['Tanggal saat ini', reportRangeLabel(data.current_period)],
+      ['Periode pembanding', data.previous_period?.label || state.reportComparePeriod],
       ...(comparing ? [['Tanggal pembanding', reportRangeLabel(data.previous_period)]] : []),
       ['Jenis transaksi', state.reportKind === 'all' ? 'Semua jenis' : state.reportKind === 'income' ? 'Uang masuk' : 'Uang keluar'],
       ['Kategori filter', state.reportCategory || 'Semua kategori'],

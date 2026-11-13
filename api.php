@@ -210,7 +210,7 @@ try {
 
     if ($action === 'report' && $method === 'GET') {
         $period = trim((string) ($_GET['period'] ?? 'month_to_date'));
-        $allowedPeriods = ['today', 'month_to_date', 'last_month', 'year_to_date', 'last_year', 'custom'];
+        $allowedPeriods = ['today', 'month_to_date', 'last_month_to_date', 'last_month', 'year_to_date', 'last_year_to_date', 'last_year', 'custom'];
         if (!in_array($period, $allowedPeriods, true)) {
             app_json(['ok' => false, 'message' => 'Periode laporan tidak dikenali.'], 422);
         }
@@ -223,6 +223,11 @@ try {
             app_json(['ok' => false, 'message' => 'Nama kategori terlalu panjang.'], 422);
         }
         $compare = (string) ($_GET['compare'] ?? '1') !== '0';
+        $comparePeriod = trim((string) ($_GET['compare_period'] ?? 'previous'));
+        $allowedComparePeriods = ['previous', 'today', 'month_to_date', 'year_to_date', 'last_month_to_date', 'last_year_to_date', 'custom'];
+        if (!in_array($comparePeriod, $allowedComparePeriods, true)) {
+            app_json(['ok' => false, 'message' => 'Periode pembanding tidak dikenali.'], 422);
+        }
         $timezone = new DateTimeZone(date_default_timezone_get());
         $today = new DateTimeImmutable('today', $timezone);
         $year = (int) $today->format('Y');
@@ -250,6 +255,15 @@ try {
             )->modify('+1 day');
             $periodLabel = 'Bulan ini sampai hari ini';
             $comparisonLabel = 'Bulan lalu sampai tanggal yang sepadan';
+        } elseif ($period === 'last_month_to_date') {
+            $currentStart = $today->modify('first day of last month');
+            $currentDay = min((int) $today->format('j'), (int) $currentStart->format('t'));
+            $currentEnd = $currentStart->setDate((int) $currentStart->format('Y'), (int) $currentStart->format('n'), $currentDay)->modify('+1 day');
+            $comparisonStart = $currentStart->modify('-1 month');
+            $comparisonDay = min($currentDay, (int) $comparisonStart->format('t'));
+            $comparisonEnd = $comparisonStart->setDate((int) $comparisonStart->format('Y'), (int) $comparisonStart->format('n'), $comparisonDay)->modify('+1 day');
+            $periodLabel = 'Bulan lalu sampai tanggal yang sama';
+            $comparisonLabel = 'Dua bulan lalu sampai tanggal yang sama';
         } elseif ($period === 'last_month') {
             $currentStart = $today->modify('first day of last month');
             $currentEnd = $today->modify('first day of this month');
@@ -267,6 +281,18 @@ try {
             $comparisonEnd = $comparisonMonthStart->setDate($year - 1, (int) $today->format('n'), $comparisonDay)->modify('+1 day');
             $periodLabel = 'Tahun ini sampai hari ini';
             $comparisonLabel = 'Tahun lalu sampai tanggal yang sepadan';
+        } elseif ($period === 'last_year_to_date') {
+            $previousYearStart = $today->setDate($year - 1, 1, 1);
+            $currentMonthStart = $today->setDate($year - 1, (int) $today->format('n'), 1);
+            $currentDay = min((int) $today->format('j'), (int) $currentMonthStart->format('t'));
+            $currentStart = $previousYearStart;
+            $currentEnd = $currentMonthStart->setDate($year - 1, (int) $today->format('n'), $currentDay)->modify('+1 day');
+            $comparisonStart = $today->setDate($year - 2, 1, 1);
+            $comparisonMonthStart = $today->setDate($year - 2, (int) $today->format('n'), 1);
+            $comparisonDay = min((int) $today->format('j'), (int) $comparisonMonthStart->format('t'));
+            $comparisonEnd = $comparisonMonthStart->setDate($year - 2, (int) $today->format('n'), $comparisonDay)->modify('+1 day');
+            $periodLabel = 'Tahun lalu sampai tanggal yang sama';
+            $comparisonLabel = 'Dua tahun lalu sampai tanggal yang sama';
         } elseif ($period === 'last_year') {
             $currentStart = $today->setDate($year - 1, 1, 1);
             $currentEnd = $today->setDate($year, 1, 1);
@@ -294,6 +320,51 @@ try {
             $comparisonStart = $currentStart->sub(new DateInterval('P' . $duration . 'D'));
             $periodLabel = 'Rentang khusus';
             $comparisonLabel = 'Rentang sebelumnya dengan durasi yang sama';
+        }
+
+        // Periode pembanding bisa dipilih terpisah dari periode laporan utama.
+        if ($compare && $comparePeriod !== 'previous') {
+            if ($comparePeriod === 'today') {
+                $comparisonStart = $today;
+                $comparisonEnd = $today->modify('+1 day');
+                $comparisonLabel = 'Hari ini';
+            } elseif ($comparePeriod === 'month_to_date') {
+                $comparisonStart = $today->modify('first day of this month');
+                $comparisonEnd = $today->modify('+1 day');
+                $comparisonLabel = 'Bulan ini sampai hari ini';
+            } elseif ($comparePeriod === 'year_to_date') {
+                $comparisonStart = $today->setDate($year, 1, 1);
+                $comparisonEnd = $today->modify('+1 day');
+                $comparisonLabel = 'Tahun ini sampai hari ini';
+            } elseif ($comparePeriod === 'last_month_to_date') {
+                $comparisonStart = $today->modify('first day of last month');
+                $comparisonDay = min((int) $today->format('j'), (int) $comparisonStart->format('t'));
+                $comparisonEnd = $comparisonStart->setDate((int) $comparisonStart->format('Y'), (int) $comparisonStart->format('n'), $comparisonDay)->modify('+1 day');
+                $comparisonLabel = 'Bulan lalu sampai tanggal yang sama';
+            } elseif ($comparePeriod === 'last_year_to_date') {
+                $comparisonStart = $today->setDate($year - 1, 1, 1);
+                $comparisonMonthStart = $today->setDate($year - 1, (int) $today->format('n'), 1);
+                $comparisonDay = min((int) $today->format('j'), (int) $comparisonMonthStart->format('t'));
+                $comparisonEnd = $comparisonMonthStart->setDate($year - 1, (int) $today->format('n'), $comparisonDay)->modify('+1 day');
+                $comparisonLabel = 'Tahun lalu sampai tanggal yang sama';
+            } elseif ($comparePeriod === 'custom') {
+                $compareStartText = trim((string) ($_GET['compare_start'] ?? ''));
+                $compareEndText = trim((string) ($_GET['compare_end'] ?? ''));
+                if (!app_valid_date($compareStartText) || !app_valid_date($compareEndText)) {
+                    app_json(['ok' => false, 'message' => 'Tanggal awal dan akhir pembanding wajib diisi dengan benar.'], 422);
+                }
+                $comparisonStart = new DateTimeImmutable($compareStartText, $timezone);
+                $compareInclusiveEnd = new DateTimeImmutable($compareEndText, $timezone);
+                if ($compareInclusiveEnd < $comparisonStart) {
+                    app_json(['ok' => false, 'message' => 'Tanggal akhir pembanding tidak boleh sebelum tanggal awal.'], 422);
+                }
+                $comparisonEnd = $compareInclusiveEnd->modify('+1 day');
+                $comparisonDuration = (int) $comparisonStart->diff($comparisonEnd)->days;
+                if ($comparisonDuration < 1 || $comparisonDuration > 3660) {
+                    app_json(['ok' => false, 'message' => 'Rentang tanggal pembanding maksimal 10 tahun.'], 422);
+                }
+                $comparisonLabel = 'Rentang pembanding pilihan';
+            }
         }
 
         $filterSql = '';
@@ -470,7 +541,7 @@ try {
 
         app_json([
             'ok' => true,
-            'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare],
+            'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare, 'compare_period' => $comparePeriod],
             'current_period' => $currentPeriod,
             'previous_period' => $previousPeriod,
             'weekday_period' => $weekdayPeriod,
