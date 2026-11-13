@@ -224,8 +224,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .import-file-label { color: #8c999f; font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
 .import-file-row .btn-link { justify-self: start; }
 .import-file-row .btn-link svg { width: 13px; height: 13px; }
-.import-preview-hint { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: #7f8f92; font-size: 9.5px; line-height: 1.55; }
+.import-preview-hint { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 8px; margin: 0; color: #7f8f92; font-size: 9.5px; line-height: 1.55; }
 .import-preview-hint svg { flex: 0 0 auto; width: 13px; height: 13px; margin-top: 1px; }
+.import-preview-hint > span { flex: 1 1 220px; }
+.import-preview-hint .btn-link { padding: 0; font-size: 9.5px; white-space: nowrap; }
+.import-preview-issues { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 8px 10px; border-radius: 9px; color: #8a5f2d; background: #fff8ec; font-size: 9.5px; line-height: 1.55; }
+.import-preview-issues[hidden] { display: none; }
+.import-preview-issues svg { flex: 0 0 auto; width: 13px; height: 13px; margin-top: 1px; }
+.import-row-error td { padding: 3px 10px 9px; color: #b45645; background: #fff6f4; font-size: 9.5px; line-height: 1.5; white-space: normal; }
+.import-table-edit tr.is-invalid td { background: #fff6f4; }
+.import-table-edit tr.is-invalid + tr.import-row-error td { border-top: 0; }
+.modal-import .modal-footer { position: sticky; bottom: 0; z-index: 2; margin-top: 2px; padding: 11px 0 2px; background: #fff; box-shadow: 0 -12px 18px -16px rgba(18, 47, 55, .45); }
 .import-preview-note { margin: 0; color: #98a6a7; font-size: 9px; line-height: 1.5; }
 .import-result-line.has-problem strong { color: #a2603f; }
 .import-table-edit { min-width: 560px; }

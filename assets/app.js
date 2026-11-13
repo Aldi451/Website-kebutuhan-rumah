@@ -607,7 +607,7 @@
     { label: 'Keterangan', sample: 'Makan siang / Gaji' },
   ];
   // Jumlah baris pratinjau yang bisa diedit langsung (sisanya ikut hasil baca otomatis).
-  const IMPORT_PREVIEW_EDIT_LIMIT = 30;
+  const IMPORT_PREVIEW_EDIT_LIMIT = 500;
   const IMPORT_PASTE_HINT = 'Belum ada data ditempel. Pemisah kolom boleh tab, titik koma, atau spasi ganda.';
   const IMPORT_DUPLICATE_NOTE = 'Setiap baris ditambahkan sebagai catatan baru; data yang sama diimpor dua kali akan menjadi ganda. ID, user_id, dan created_at lama tidak disalin — transaksi baru tercatat atas akun yang sedang login.';
 
@@ -851,11 +851,17 @@
       const prepared = prepareImportRows('transactions', parsed.rows);
       state.importPreview = { ...prepared, type: 'transactions', fileName: `Tempelan clipboard · ${parsed.dataRows} baris` };
       renderImportPreview();
-      if (!prepared.valid.length) {
-        showImportError('Belum ada baris yang valid. Periksa urutan kolom sesuai panduan di atas, lalu proses ulang.');
+      scrollImportPreviewIntoView();
+      const stats = transactionPreviewStats(state.importPreview);
+      if (!stats.total) {
+        showImportError('Belum ada baris data yang terbaca. Periksa lagi isi tempelan.');
         return;
       }
-      showToast(`${prepared.valid.length} baris siap diperiksa${prepared.invalid.length ? `; ${prepared.invalid.length} baris dilewati` : ''}.`, prepared.invalid.length ? 'error' : 'success');
+      showToast(
+        stats.broken
+          ? `${stats.ready} baris siap diimpor; ${stats.broken} baris merah bisa diperbaiki di pratinjau.`
+          : `${stats.ready} baris siap diimpor. Tekan tombol Import di bawah pratinjau.`,
+      );
     } catch (error) {
       if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Import'; }
       showImportError(error.message || 'Data tempelan tidak dapat dibaca.');
@@ -1051,6 +1057,8 @@
 
     const valid = [];
     const invalid = [];
+    // Transaksi menyimpan semua baris agar baris bermasalah tetap bisa diperbaiki di pratinjau.
+    const items = [];
     if (type === 'transactions') {
       const indexes = quickLayout ? { date: 0, kind: 1, category: 2, amount: 3, title: 4, note: 5 } : {
         kind: importColumn(headers, ['jenis', 'tipe', 'jenis transaksi', 'transaction type', 'transaction_type', 'type', 'kind', 'direction']),
@@ -1077,9 +1085,7 @@
           note: importCell(row, indexes.note),
         });
         if (!data.title && data.note) data.title = data.note.slice(0, 100);
-        const reasons = validateTransactionData(data);
-        if (reasons.length) invalid.push({ row: row.number, reason: reasons.join('; '), data });
-        else valid.push({ row: row.number, data, reasons: [] });
+        items.push({ row: row.number, data });
       }
     } else {
       const indexes = {
@@ -1113,12 +1119,47 @@
         else valid.push({ row: row.number, data: { title, category, reminder_date: reminderDate, reminder_time: time, note } });
       }
     }
+    if (type === 'transactions') return { items };
     return { valid, invalid };
   }
 
   function reminderImportLabel(data) {
     const date = dateLabel(data.reminder_date, { day: 'numeric', month: 'short', year: 'numeric' });
     return data.reminder_time ? `${date}, ${data.reminder_time}` : `${date} · seharian`;
+  }
+
+  function importPreviewItems(preview) {
+    return Array.isArray(preview?.items) ? preview.items : [];
+  }
+
+  function transactionPreviewStats(preview) {
+    const items = importPreviewItems(preview);
+    let broken = 0;
+    for (const item of items) {
+      if (validateTransactionData(item.data).length) broken += 1;
+    }
+    return { items, total: items.length, broken, ready: items.length - broken };
+  }
+
+  // Ringkasan alasan penolakan, diurutkan dari yang paling sering muncul.
+  function transactionIssueSummary(items) {
+    const counts = new Map();
+    for (const item of items) {
+      for (const reason of validateTransactionData(item.data)) {
+        counts.set(reason, (counts.get(reason) || 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([reason, count]) => `${reason} (${count})`)
+      .join(' · ');
+  }
+
+  function importRowErrorText(item, index) {
+    const reasons = validateTransactionData(item.data);
+    if (!reasons.length) return '';
+    const sourceRow = Number(item.row) || index + 1;
+    return `Baris ${index + 1} (Excel baris ${sourceRow}): ${reasons.join(' · ')}`;
   }
 
   function importPreviewRowMarkup(item, index) {
@@ -1128,6 +1169,7 @@
     const amountValue = Number.isFinite(Number(data.amount)) && Number(data.amount) > 0 ? String(Math.round(Number(data.amount))) : '';
     const kindOption = (value, label) => `<option value="${value}"${data.kind === value ? ' selected' : ''}>${label}</option>`;
     const kindPlaceholder = ['income', 'expense'].includes(data.kind) ? '' : '<option value="" selected>—</option>';
+    const errorText = importRowErrorText(item, index);
     return `<tr class="${reasons.length ? 'is-invalid' : ''}" data-preview-index="${index}" title="${escapeAttribute(reasons.join('; '))}">
       <td><input class="import-cell-input import-cell-date" type="date" value="${escapeAttribute(data.date || '')}" ${field('date')} aria-label="Tanggal baris ${index + 1}"></td>
       <td><select class="import-cell-input" ${field('kind')} aria-label="Jenis baris ${index + 1}">${kindPlaceholder}${kindOption('income', 'Masuk')}${kindOption('expense', 'Keluar')}</select></td>
@@ -1135,7 +1177,8 @@
       <td><input class="import-cell-input" type="text" maxlength="40" value="${escapeAttribute(data.category || '')}" ${field('category')} aria-label="Kategori baris ${index + 1}" placeholder="Kategori"></td>
       <td><input class="import-cell-input import-cell-amount" type="number" min="1" step="1" inputmode="numeric" value="${amountValue}" ${field('amount')} aria-label="Jumlah baris ${index + 1}" placeholder="0"></td>
       <td class="import-row-action"><button class="import-row-remove" type="button" data-action="remove-import-row" data-index="${index}" aria-label="Hapus baris ${index + 1}" title="Hapus baris ini">${icon('trash')}</button></td>
-    </tr>`;
+    </tr>
+    <tr class="import-row-error" data-preview-error="${index}"${errorText ? '' : ' hidden'}><td colspan="6" data-preview-error-text>${escapeHtml(errorText)}</td></tr>`;
   }
 
   // Menghitung ulang ringkasan + status tombol import tanpa menggambar ulang tabel
@@ -1143,20 +1186,42 @@
   function refreshImportSummary() {
     const preview = state.importPreview;
     const summary = modalRoot.querySelector('[data-import-summary]');
+    const issueNode = modalRoot.querySelector('[data-import-issues]');
     const confirmButton = modalRoot.querySelector('[data-action="confirm-import"]');
     if (!preview) return;
-    const reminderPreview = preview.type === 'reminders';
-    const brokenRows = reminderPreview ? 0 : preview.valid.filter((item) => validateTransactionData(item.data).length > 0).length;
-    const ready = Math.max(0, preview.valid.length - brokenRows);
-    const skipped = preview.invalid.length + brokenRows;
+    if (preview.type === 'reminders') {
+      const skipped = preview.invalid.length;
+      if (summary) {
+        summary.innerHTML = `<strong>${preview.valid.length} baris siap diimpor</strong><span>${skipped ? `${skipped} baris dilewati` : 'Semua baris terlihat valid'}</span>`;
+        summary.classList.toggle('has-problem', skipped > 0);
+      }
+      if (confirmButton) {
+        confirmButton.disabled = preview.valid.length === 0;
+        confirmButton.textContent = preview.valid.length ? `Import ${preview.valid.length} baris` : 'Import';
+      }
+      return;
+    }
+    const { items, total, broken, ready } = transactionPreviewStats(preview);
+    const issueSummary = transactionIssueSummary(items);
     if (summary) {
-      summary.innerHTML = `<strong>${ready} baris siap diimpor</strong><span>${skipped ? `${skipped} baris dilewati / perlu diperbaiki` : 'Semua baris terlihat valid'}</span>`;
-      summary.classList.toggle('has-problem', skipped > 0);
+      summary.innerHTML = `<strong>${ready} dari ${total} baris siap diimpor</strong><span>${broken ? `${broken} baris bertanda merah perlu diperbaiki` : 'Semua baris valid'}</span>`;
+      summary.classList.toggle('has-problem', broken > 0);
+    }
+    if (issueNode) {
+      issueNode.hidden = !issueSummary;
+      issueNode.innerHTML = issueSummary ? `${icon('info')} <span>${escapeHtml(issueSummary)}</span>` : '';
     }
     if (confirmButton) {
       confirmButton.disabled = ready === 0;
       confirmButton.textContent = ready ? `Import ${ready} baris` : 'Import';
     }
+  }
+
+  function scrollImportPreviewIntoView() {
+    window.setTimeout(() => {
+      const previewNode = modalRoot.querySelector('[data-import-preview]');
+      if (previewNode && !previewNode.hidden) previewNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 90);
   }
 
   function renderImportPreview() {
@@ -1166,31 +1231,40 @@
     if (!previewNode || !preview) return;
     previewNode.hidden = false;
     showImportError('');
-    const invalidList = preview.invalid.slice(0, 5).map((item) => `<li>Baris ${Number(item.row)}: ${escapeHtml(item.reason)}</li>`).join('');
-    const invalidMarkup = invalidList ? `<details class="import-invalid"><summary>Lihat contoh baris yang dilewati</summary><ul>${invalidList}</ul></details>` : '';
     if (preview.type === 'reminders') {
       if (fileNameNode) fileNameNode.textContent = preview.fileName;
       const sample = preview.valid.slice(0, 5).map((item) => `<tr><td>${escapeHtml(reminderImportLabel(item.data))}</td><td>${escapeHtml(item.data.title)}</td><td>${escapeHtml(item.data.category)}</td></tr>`).join('');
+      const invalidList = preview.invalid.slice(0, 5).map((item) => `<li>Baris ${Number(item.row)}: ${escapeHtml(item.reason)}</li>`).join('');
+      const invalidMarkup = invalidList ? `<details class="import-invalid"><summary>Lihat contoh baris yang dilewati</summary><ul>${invalidList}</ul></details>` : '';
       previewNode.innerHTML = `<div class="import-result-line" data-import-summary></div>${sample ? `<div class="import-table-wrap"><table class="import-table"><thead><tr><th>Tanggal & jam</th><th>Judul</th><th>Kategori</th></tr></thead><tbody>${sample}</tbody></table></div>` : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>'}${invalidMarkup}`;
       refreshImportSummary();
       return;
     }
-    const shown = preview.valid.slice(0, IMPORT_PREVIEW_EDIT_LIMIT);
-    const restNote = preview.valid.length > shown.length
-      ? `<p class="import-preview-note">${preview.valid.length - shown.length} baris lainnya sudah valid dan ikut diimpor apa adanya.</p>` : '';
+
+    const { items, total, broken } = transactionPreviewStats(preview);
+    const shown = items.slice(0, IMPORT_PREVIEW_EDIT_LIMIT);
+    const missingTitle = items.some((item) => !String(item.data.title || '').trim());
+    const restNote = total > shown.length
+      ? `<p class="import-preview-note">${total - shown.length} baris lainnya belum ditampilkan, tetapi tetap dihitung saat import.</p>` : '';
+    const actions = [
+      missingTitle ? `<button class="btn-link" type="button" data-action="autofill-import-titles">Isi keterangan kosong dari kategori</button>` : '',
+      broken ? `<button class="btn-link" type="button" data-action="drop-invalid-import">Hapus ${broken} baris merah</button>` : '',
+    ].filter(Boolean).join('');
     const table = shown.length
       ? `<div class="import-table-wrap"><table class="import-table import-table-edit"><thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th>Kategori</th><th>Jumlah (Rp)</th><th aria-label="Aksi"></th></tr></thead><tbody>${shown.map((item, index) => importPreviewRowMarkup(item, index)).join('')}</tbody></table></div>`
       : '<p class="import-no-valid">Belum ada baris valid untuk diimpor.</p>';
     previewNode.innerHTML = `<div class="import-result-line" data-import-summary></div>
-      <p class="import-preview-hint">${icon('edit')} Periksa hasil baca di bawah. Klik sel untuk memperbaiki keterangan, kategori, jumlah, atau tanggal. Baris bertanda merah tidak ikut diimpor.</p>
-      ${table}${restNote}${invalidMarkup}`;
+      <p class="import-preview-issues" data-import-issues hidden></p>
+      <p class="import-preview-hint">${icon('edit')} <span>Klik sel untuk memperbaiki keterangan, kategori, jumlah, atau tanggal. Baris bertanda merah tidak ikut diimpor sampai diperbaiki.</span>${actions}</p>
+      ${table}${restNote}`;
     refreshImportSummary();
   }
 
   function applyPreviewEdit(input) {
     const preview = state.importPreview;
     if (!preview || preview.type !== 'transactions') return;
-    const item = preview.valid[Number(input.dataset.previewRow)];
+    const index = Number(input.dataset.previewRow);
+    const item = importPreviewItems(preview)[index];
     if (!item) return;
     const field = input.dataset.previewField;
     if (field === 'amount') item.data.amount = parseImportAmount(input.value);
@@ -1202,19 +1276,56 @@
       row.classList.toggle('is-invalid', reasons.length > 0);
       row.title = reasons.join('; ');
     }
+    const errorRow = modalRoot.querySelector(`[data-preview-error="${index}"]`);
+    if (errorRow) {
+      const textNode = errorRow.querySelector('[data-preview-error-text]');
+      if (textNode) textNode.textContent = importRowErrorText(item, index);
+      errorRow.hidden = reasons.length === 0;
+    }
     refreshImportSummary();
   }
 
   function removeImportRow(index) {
     const preview = state.importPreview;
-    if (!preview || !preview.valid[index]) return;
-    preview.valid.splice(index, 1);
-    if (!preview.valid.length) {
+    const items = importPreviewItems(preview);
+    if (!preview || !items[index]) return;
+    items.splice(index, 1);
+    if (!items.length) {
       resetImportPreview();
       showToast('Semua baris dibersihkan. Tempel data lain untuk melanjutkan.', 'error');
       return;
     }
     renderImportPreview();
+  }
+
+  function autofillImportTitles() {
+    const preview = state.importPreview;
+    if (!preview || preview.type !== 'transactions') return;
+    let filled = 0;
+    for (const item of importPreviewItems(preview)) {
+      if (!String(item.data.title || '').trim()) {
+        item.data.title = String(item.data.category || '').trim() || 'Transaksi';
+        filled += 1;
+      }
+    }
+    renderImportPreview();
+    showToast(filled ? `${filled} keterangan kosong diisi dari kategori. Periksa lagi sebelum import.` : 'Tidak ada keterangan kosong.', filled ? 'success' : 'error');
+  }
+
+  function dropInvalidImportRows() {
+    const preview = state.importPreview;
+    if (!preview || preview.type !== 'transactions') return;
+    const items = importPreviewItems(preview);
+    const before = items.length;
+    preview.items = items.filter((item) => validateTransactionData(item.data).length === 0);
+    const removed = before - preview.items.length;
+    if (!preview.items.length) {
+      resetImportPreview();
+      showToast('Semua baris bermasalah dihapus. Tempel atau perbaiki datanya dulu.', 'error');
+      return;
+    }
+    renderImportPreview();
+    showToast(`${removed} baris merah dihapus; ${preview.items.length} baris siap diimpor.`);
   }
 
   async function handleImportFile(file) {
@@ -1229,6 +1340,7 @@
       const prepared = prepareImportRows(state.importType, workbookRows);
       state.importPreview = { ...prepared, type: state.importType, fileName: file.name };
       renderImportPreview();
+      scrollImportPreviewIntoView();
     } catch (error) {
       showImportError(error.message || 'File tidak dapat dibaca.');
       if (fileNameNode) fileNameNode.textContent = file ? file.name : 'Pilih file Excel atau CSV';
@@ -1238,43 +1350,48 @@
 
   async function confirmImport(button) {
     const preview = state.importPreview;
-    if (!preview || !preview.valid.length) return;
+    if (!preview) return;
     showImportError('');
-    let rows = preview.valid.map((item) => ({ ...item.data, source_row: item.row }));
-    if (preview.type === 'transactions') {
-      const problems = [];
-      preview.valid.forEach((item, index) => {
-        const reasons = validateTransactionData(item.data);
-        const row = modalRoot.querySelector(`[data-preview-index="${index}"]`);
-        if (row) {
-          row.classList.toggle('is-invalid', reasons.length > 0);
-          row.title = reasons.join('; ');
+
+    let rows;
+    let redRows = 0;
+    if (preview.type === 'reminders') {
+      rows = preview.valid.map((item) => ({ ...item.data, source_row: item.row }));
+      redRows = preview.invalid.length;
+    } else {
+      rows = [];
+      for (const item of importPreviewItems(preview)) {
+        if (validateTransactionData(item.data).length) {
+          redRows += 1;
+          continue;
         }
-        if (reasons.length) problems.push(index + 1);
-      });
-      if (problems.length) {
-        const shown = problems.slice(0, 5).join(', ');
-        showImportError(`Perbaiki dulu baris yang ditandai merah (baris ${shown}${problems.length > 5 ? ', …' : ''}) sebelum import.`);
-        refreshImportSummary();
-        return;
+        rows.push({
+          kind: item.data.kind,
+          title: String(item.data.title || '').trim(),
+          category: String(item.data.category || '').trim() || 'Lainnya',
+          amount: Number(item.data.amount),
+          date: item.data.date,
+          note: String(item.data.note || '').trim(),
+          source_row: item.row,
+        });
       }
-      rows = preview.valid.map((item) => ({
-        kind: item.data.kind,
-        title: String(item.data.title || '').trim(),
-        category: String(item.data.category || '').trim() || 'Lainnya',
-        amount: Number(item.data.amount),
-        date: item.data.date,
-        note: String(item.data.note || '').trim(),
-        source_row: item.row,
-      }));
     }
+    if (!rows.length) {
+      showImportError(preview.type === 'reminders'
+        ? 'Belum ada pengingat valid untuk diimpor.'
+        : 'Semua baris masih bertanda merah. Perbaiki dulu, atau tekan “Hapus baris merah” lalu tempel data lain.');
+      refreshImportSummary();
+      return;
+    }
+    if (redRows && !window.confirm(`${redRows} baris bertanda merah akan dilewati. Lanjut import ${rows.length} baris yang valid?`)) return;
+
     button.disabled = true;
     button.textContent = 'Mengimpor…';
     try {
       const action = preview.type === 'reminders' ? 'reminders/import' : 'transactions/import';
       const result = await api(action, { rows });
       const type = preview.type;
-      const skippedRows = Number(result.skipped || 0) + preview.invalid.length;
+      const skippedRows = Number(result.skipped || 0) + redRows;
       closeModal();
       state.importPreview = null;
       state.dashboard = null;
@@ -1291,11 +1408,14 @@
       }
       await refreshPage(true);
       const imported = Number(result.imported || 0);
-      showToast(`${imported} ${type === 'reminders' ? 'pengingat' : 'transaksi'} berhasil diimpor${skippedRows ? `; ${skippedRows} baris dilewati` : ''}.`, skippedRows ? 'error' : 'success');
+      showToast(
+        `${imported} ${type === 'reminders' ? 'pengingat' : 'transaksi'} berhasil diimpor${skippedRows ? `; ${skippedRows} baris dilewati` : ''}.`,
+        skippedRows ? 'error' : 'success',
+      );
     } catch (error) {
       showImportError(error.message || 'Data gagal diimpor.');
       button.disabled = false;
-      button.textContent = `Import ${preview.valid.length} baris`;
+      button.textContent = `Import ${rows.length} baris`;
     }
   }
 
@@ -2104,6 +2224,8 @@
     else if (action === 'clear-import-paste') clearImportPaste();
     else if (action === 'read-import-paste') await handleImportPaste();
     else if (action === 'remove-import-row') removeImportRow(Number(actionButton.dataset.index));
+    else if (action === 'autofill-import-titles') autofillImportTitles();
+    else if (action === 'drop-invalid-import') dropInvalidImportRows();
     else if (action === 'confirm-import') await confirmImport(actionButton);
     else if (action === 'download-report') downloadReportCsv();
     else if (action === 'report-pick-category') {
@@ -2237,6 +2359,10 @@
   });
 
   document.addEventListener('change', async (event) => {
+    if (event.target.matches('[data-preview-field]')) {
+      applyPreviewEdit(event.target);
+      return;
+    }
     if (event.target.matches('[data-import-file]')) {
       await handleImportFile(event.target.files?.[0]);
       return;

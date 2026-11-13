@@ -45,7 +45,9 @@
   }
 
   function unquote(value) {
-    const text = String(value ?? '').trim();
+    let text = String(value ?? '').trim();
+    // Excel menandai sel berformat teks dengan apostrof di depan ('25/02/2026).
+    if (text.startsWith("'")) text = text.slice(1).trim();
     if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
       return text.slice(1, -1).replace(/""/g, '"').trim();
     }

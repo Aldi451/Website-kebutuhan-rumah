@@ -72,8 +72,8 @@ Hasilnya berupa daftar **OK / PERIKSA / MASALAH** beserta langkah perbaikannya. 
    | `2026-07-30` / `30/07/2026` | `Masuk` / `Keluar` | `Makanan` / `Payroll` | `50000` / `50.000` | `Makan siang` / `Gaji` |
 
 3. Tempel ke kotak **Paste data Excel di sini** (Ctrl+V), atau tekan **Tempel dari clipboard** untuk membaca clipboard otomatis.
-4. Tekan **Proses & parse data**. Hasil baca tampil dalam tabel yang **bisa langsung diedit** (tanggal, jenis, keterangan, kategori, jumlah) dan baris yang salah ditandai merah.
-5. Tekan **Import n baris** untuk menyimpan ke database.
+4. Tekan **Proses & parse data**. Semua baris (maks. 500) tampil dalam tabel yang **bisa langsung diedit** (tanggal, jenis, keterangan, kategori, jumlah); baris bermasalah ditandai merah dengan alasan tepat di bawah barisnya. Baris merah tidak hilang: perbaiki selnya sampai tanda merah hilang, atau hapus satu per satu.
+5. Tekan **Import n baris** untuk menyimpan baris valid. Jika masih ada baris merah, website minta konfirmasi dan hanya menyimpan baris valid; tombol **Hapus baris merah** juga bisa dipakai bila memang tidak mau menyimpan baris tersebut.
 
 Tombol **Salin format sample Excel** menyalin dua baris contoh (dipisah tab) supaya bisa ditempel ke Excel sebagai gambaran format. Tombol **Bersihkan teks** mengosongkan kotak paste dan pratinjau.
 

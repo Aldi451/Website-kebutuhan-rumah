@@ -27,13 +27,13 @@ try {
     <meta name="description" content="Catatan keuangan rumah dan pengingat keluarga dalam satu dashboard.">
     <title>Masuk — Catatan keuangan rumah</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand.svg">
-    <link rel="stylesheet" href="/assets/style.css?v=11">
+    <link rel="stylesheet" href="/assets/style.css?v=12">
     <script>
         window.APP_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
     <script defer src="/assets/importer.js?v=2"></script>
-    <script defer src="/assets/clipboard-import.js?v=1"></script>
-    <script defer src="/assets/app.js?v=15"></script>
+    <script defer src="/assets/clipboard-import.js?v=2"></script>
+    <script defer src="/assets/app.js?v=16"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">
