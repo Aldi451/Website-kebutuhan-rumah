@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const updateRoot = path.join(root, 'update');
 
-// Paket update "import cepat dari clipboard": file runtime yang berubah.
+// Paket update laporan/perbandingan periode dan import clipboard: file runtime yang berubah.
 const files = [
   ['index.php', 'website/index.php'],
+  ['api.php', 'website/api.php'],
   ['assets/app.js', 'website/assets/app.js'],
   ['assets/clipboard-import.js', 'website/assets/clipboard-import.js'],
   ['assets/style.css', 'website/assets/style.css'],

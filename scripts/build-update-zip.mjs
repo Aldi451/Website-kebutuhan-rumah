@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Membuat update/website-update.zip dari isi update/website/.
- * ZIP-nya sudah membawa struktur folder yang benar (index.php + assets/…),
+ * ZIP-nya sudah membawa struktur folder yang benar (index.php + api.php + assets/…),
  * jadi bisa langsung diekstrak di htdocs tanpa risiko salah tempat.
  * Ditulis tanpa dependensi: memakai format ZIP standar + zlib bawaan Node.
  */
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = path.join(root, 'update', 'website');
 const zipPath = path.join(root, 'update', 'website-update.zip');
-const entriesToZip = ['index.php', 'assets/app.js', 'assets/clipboard-import.js', 'assets/style.css'];
+const entriesToZip = ['index.php', 'api.php', 'assets/app.js', 'assets/clipboard-import.js', 'assets/style.css'];
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);

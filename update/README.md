@@ -1,6 +1,6 @@
-# Paket update — import cepat dari clipboard (copy-paste Excel)
+# Paket update — pembanding periode laporan & import clipboard
 
-Folder ini berisi file runtime untuk fitur **Import data dari copy paste Excel / clipboard** pada menu Keuangan. Hanya file yang berubah pada fitur ini yang dikemas; file lain di hosting tidak perlu disentuh. **Jangan upload seluruh folder `update/` ke `htdocs`.**
+Paket ini membawa perubahan **Laporan keuangan** (pemilih periode pembanding dan rentang tanggal khusus) sekaligus file import clipboard yang sudah ada. Hanya file runtime yang perlu diperbarui yang dikemas; file lain di hosting tidak perlu disentuh. **Jangan upload seluruh folder `update/` ke `htdocs`.**
 
 ---
 
@@ -14,12 +14,13 @@ ZIP tersebut sudah membawa struktur folder yang benar:
 
 ```
 index.php
+api.php
 assets/app.js
 assets/clipboard-import.js
 assets/style.css
 ```
 
-Jadi `index.php` tetap di root dan semua berkas tampilan otomatis masuk ke `assets/`. Risiko tertukar antarfile (misalnya isi `app.js` masuk ke `index.php`) menjadi nol.
+`index.php` dan `api.php` tetap di root; semua berkas tampilan otomatis masuk ke `assets/`. Risiko tertukar antarfile (misalnya isi `app.js` masuk ke `index.php`) menjadi nol.
 
 ## B. Salin manual (bila hosting tidak bisa mengekstrak ZIP)
 
@@ -28,13 +29,14 @@ Salin isi `website/` ke document root situs (`htdocs`), **dengan susunan folder 
 | File paket | Tujuan di hosting | Status |
 | --- | --- | --- |
 | `website/index.php` | `htdocs/index.php` (root!) | diganti |
+| `website/api.php` | `htdocs/api.php` (root!) | diganti |
 | `website/assets/app.js` | `htdocs/assets/app.js` | diganti |
 | `website/assets/clipboard-import.js` | `htdocs/assets/clipboard-import.js` | **baru** |
 | `website/assets/style.css` | `htdocs/assets/style.css` | diganti |
 
-Perhatikan: **hanya `index.php` yang diletakkan di root.** Tiga berkas lainnya masuk ke folder `assets/` yang sudah ada. Jangan menimpa `index.php` dengan `app.js`/`style.css` — kalau itu terjadi, browser akan menampilkan kode program sebagai teks, bukan halaman website.
+Perhatikan: **`index.php` dan `api.php` diletakkan di root.** Tiga berkas lainnya masuk ke folder `assets/` yang sudah ada. Jangan menimpa `index.php` dengan `app.js`/`style.css` — kalau itu terjadi, browser akan menampilkan kode program sebagai teks, bukan halaman website.
 
-Yang **tidak** perlu diubah: `config.php`, `api.php`, `includes/`, `database/`, dan `assets/importer.js` (pembaca file `.xlsx`/CSV tetap sama). Fitur ini memakai endpoint `transactions/import` yang sudah ada.
+Yang **tidak** perlu diubah: `config.php`, `includes/`, `database/`, dan `assets/importer.js` (pembaca file `.xlsx`/CSV tetap sama). Versi `api.php` terbaru dalam paket diperlukan untuk rentang tanggal pembanding.
 
 Setelah menyalin, buka situs lalu tekan **Ctrl+F5** agar browser memakai `app.js`/`style.css` versi baru.
 
@@ -59,9 +61,16 @@ Hasilnya berupa daftar **OK / PERIKSA / MASALAH** beserta langkah perbaikannya. 
 | Panel “Import data dari copy paste Excel / clipboard” tidak muncul | `index.php` atau `assets/app.js` masih versi lama | Unggah `update/website/index.php` **dan** `update/website/assets/app.js`. |
 | Muncul pesan “Pembaca data belum siap. Muat ulang halaman lalu coba lagi.” | `assets/clipboard-import.js` belum diunggah | Unggah berkas itu ke `htdocs/assets/clipboard-import.js`. |
 | Tombol **Tempel dari clipboard** menolak membaca | Browser butuh HTTPS + izin clipboard | Tempel manual dengan Ctrl+V di kotak paste (fitur tetap jalan). |
+| Periode pembanding tidak bisa dipilih atau hasil perbandingan tidak mengikuti tanggal | `api.php` masih versi lama | Unggah `update/website/api.php` ke `htdocs/api.php`, lalu muat ulang halaman. |
 | Tampilan masih seperti versi lama | Cache browser | Ctrl+F5, atau buka di jendela incognito. |
 
-## E. Cara memakai fitur
+## E. Memilih periode laporan dan pembanding
+
+Di menu **Laporan keuangan**, pilih periode laporan yang mau dilihat: **Today**, **MTD**, **LMTD**, **YTD**, atau **LYTD**. Untuk pembanding, pilih salah satu periode yang sama dari dropdown **Periode pembanding**. Pilihan **Periode sebelumnya (otomatis)** tetap tersedia. Bila ingin tanggal tertentu, pilih **Pilih tanggal sendiri** lalu isi tanggal awal dan akhir; rentang tanggal pembanding akan terlihat pada kartu perbandingan.
+
+Sesuai contoh, fitur ini **tidak menambahkan** tombol/kolom Actual, Delete, Budget, atau Forecast yang dicoret.
+
+## F. Cara memakai import clipboard
 
 1. Buka menu **Keuangan** → **Import Excel**.
 2. Salin (Ctrl+C) baris data dari Excel/Google Sheets. Urutan kolom yang dipakai (boleh tanpa baris judul kolom):
@@ -85,11 +94,11 @@ Catatan:
 - Maksimal 500 baris sekali import. Setiap import membuat baris baru; data yang sama diimpor dua kali akan menjadi ganda.
 - Akses clipboard otomatis butuh HTTPS. Jika browser menolak, tempel manual dengan Ctrl+V di kotak paste.
 
-## F. Fitur lain yang tidak lagi dikemas di sini
+## G. Fitur lain yang tidak lagi dikemas di sini
 
 Paket lama (backup harian ke Telegram) sudah dihapus dari folder ini agar `update/` hanya berisi fitur terbaru. File sumbernya **tidak dihapus** dari repository: `telegram-backup.php`, `includes/app.php`, dan `cloudflare-backup/` masih ada di root. Bila paket backup diperlukan lagi, buat ulang dari sumber tersebut.
 
-## G. Menyegarkan paket
+## H. Menyegarkan paket
 
 Setelah berkas sumber di root berubah, jalankan dari root repository:
 
