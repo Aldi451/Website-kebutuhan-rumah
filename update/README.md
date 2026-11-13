@@ -66,7 +66,7 @@ Hasilnya berupa daftar **OK / PERIKSA / MASALAH** beserta langkah perbaikannya. 
 
 ## E. Memilih periode laporan dan pembanding
 
-Di menu **Laporan keuangan**, pilih periode laporan yang mau dilihat: **Today**, **MTD**, **LMTD**, **YTD**, atau **LYTD**. Untuk pembanding, pilih salah satu periode yang sama dari dropdown **Periode pembanding**. Pilihan **Periode sebelumnya (otomatis)** tetap tersedia. Bila ingin tanggal tertentu, pilih **Pilih tanggal sendiri** lalu isi tanggal awal dan akhir; rentang tanggal pembanding akan terlihat pada kartu perbandingan.
+Di menu **Laporan keuangan**, pilih satu **Tanggal acuan laporan**. Seluruh tabel mengikuti tanggal itu: kolom **Today**, **Yesterday**, **Varian**; **MTD**, **LMTD**, **Varian**; dan **YTD**, **LYTD**, **Varian**. Tanggal setiap rentang ditampilkan di kepala kolom. Varian dihitung sebagai periode pertama dikurangi periode kedua. Baris tabel merangkum kategori, dan pilihan jenis transaksi mengatur apakah nilainya uang masuk atau uang keluar.
 
 Sesuai contoh, fitur ini **tidak menambahkan** tombol/kolom Actual, Delete, Budget, atau Forecast yang dicoret.
 

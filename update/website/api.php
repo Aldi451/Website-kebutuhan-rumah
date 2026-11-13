@@ -230,6 +230,11 @@ try {
         }
         $timezone = new DateTimeZone(date_default_timezone_get());
         $today = new DateTimeImmutable('today', $timezone);
+        $anchorText = trim((string) ($_GET['anchor_date'] ?? ''));
+        if ($anchorText !== '' && !app_valid_date($anchorText)) {
+            app_json(['ok' => false, 'message' => 'Tanggal acuan laporan tidak valid.'], 422);
+        }
+        $anchorDate = $anchorText !== '' ? new DateTimeImmutable($anchorText, $timezone) : $today;
         $year = (int) $today->format('Y');
         $currentStart = $today;
         $currentEnd = $today->modify('+1 day');
@@ -320,6 +325,15 @@ try {
             $comparisonStart = $currentStart->sub(new DateInterval('P' . $duration . 'D'));
             $periodLabel = 'Rentang khusus';
             $comparisonLabel = 'Rentang sebelumnya dengan durasi yang sama';
+        }
+
+        if ($anchorText !== '') {
+            $currentStart = $anchorDate;
+            $currentEnd = $anchorDate->modify('+1 day');
+            $comparisonStart = $anchorDate->modify('-1 day');
+            $comparisonEnd = $anchorDate;
+            $periodLabel = 'Tanggal pilihan';
+            $comparisonLabel = 'Hari sebelumnya';
         }
 
         // Periode pembanding bisa dipilih terpisah dari periode laporan utama.
@@ -505,6 +519,58 @@ try {
 
         $currentPeriod = $rangeData($currentStart, $currentEnd, $periodLabel);
         $currentPeriod['active_days'] = $activeDaysFor($currentStart, $currentEnd);
+
+        $matrixDate = $anchorDate;
+        $matrixEnd = $matrixDate->modify('+1 day');
+        $matrixMonthStart = $matrixDate->modify('first day of this month');
+        $matrixLastMonthStart = $matrixDate->modify('first day of last month');
+        $matrixLastMonthDay = min((int) $matrixDate->format('j'), (int) $matrixLastMonthStart->format('t'));
+        $matrixYearStart = $matrixDate->setDate((int) $matrixDate->format('Y'), 1, 1);
+        $matrixLastYearStart = $matrixDate->setDate((int) $matrixDate->format('Y') - 1, 1, 1);
+        $matrixLastYearMonthStart = $matrixDate->setDate((int) $matrixDate->format('Y') - 1, (int) $matrixDate->format('n'), 1);
+        $matrixLastYearDay = min((int) $matrixDate->format('j'), (int) $matrixLastYearMonthStart->format('t'));
+        $matrixRangesRaw = [
+            'today' => [$matrixDate, $matrixEnd, 'Today'],
+            'yesterday' => [$matrixDate->modify('-1 day'), $matrixDate, 'Yesterday'],
+            'mtd' => [$matrixMonthStart, $matrixEnd, 'MTD'],
+            'lmtd' => [$matrixLastMonthStart, $matrixLastMonthStart->setDate((int) $matrixLastMonthStart->format('Y'), (int) $matrixLastMonthStart->format('n'), $matrixLastMonthDay)->modify('+1 day'), 'LMTD'],
+            'ytd' => [$matrixYearStart, $matrixEnd, 'YTD'],
+            'lytd' => [$matrixLastYearStart, $matrixLastYearMonthStart->setDate((int) $matrixLastYearMonthStart->format('Y'), (int) $matrixLastYearMonthStart->format('n'), $matrixLastYearDay)->modify('+1 day'), 'LYTD'],
+        ];
+        $matrixRanges = [];
+        $matrixSummaries = [];
+        $matrixCategoryMap = [];
+        foreach ($matrixRangesRaw as $key => [$rangeStart, $rangeEnd, $label]) {
+            $matrixRanges[$key] = $rangeData($rangeStart, $rangeEnd, $label);
+            $matrixSummaries[$key] = $summaryFor($rangeStart, $rangeEnd);
+            foreach ($categoriesFor($rangeStart, $rangeEnd) as $categoryKey => $categoryValue) {
+                if (!isset($matrixCategoryMap[$categoryKey])) {
+                    $matrixCategoryMap[$categoryKey] = ['category' => $categoryValue['category'] ?? $categoryKey];
+                }
+                $matrixCategoryMap[$categoryKey][$key] = [
+                    'income' => (int) ($categoryValue['income'] ?? 0),
+                    'expense' => (int) ($categoryValue['expense'] ?? 0),
+                    'count' => (int) ($categoryValue['count'] ?? 0),
+                ];
+            }
+        }
+        foreach ($matrixCategoryMap as &$matrixCategory) {
+            foreach (array_keys($matrixRangesRaw) as $rangeKey) {
+                $matrixCategory[$rangeKey] ??= ['income' => 0, 'expense' => 0, 'count' => 0];
+            }
+        }
+        unset($matrixCategory);
+        $matrixCategories = array_values($matrixCategoryMap);
+        usort($matrixCategories, static function (array $a, array $b): int {
+            $ytdDifference = (int) ($b['ytd']['expense'] ?? 0) <=> (int) ($a['ytd']['expense'] ?? 0);
+            return $ytdDifference !== 0 ? $ytdDifference : strcasecmp((string) $a['category'], (string) $b['category']);
+        });
+        $periodMatrix = [
+            'anchor_date' => $matrixDate->format('Y-m-d'),
+            'ranges' => $matrixRanges,
+            'summary' => $matrixSummaries,
+            'categories' => $matrixCategories,
+        ];
         $previousPeriod = null;
         if ($compare) {
             $previousPeriod = $rangeData($comparisonStart, $comparisonEnd, $comparisonLabel);
@@ -541,7 +607,8 @@ try {
 
         app_json([
             'ok' => true,
-            'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare, 'compare_period' => $comparePeriod],
+            'filters' => ['period' => $period, 'kind' => $kind, 'category' => $category, 'compare' => $compare, 'compare_period' => $comparePeriod, 'anchor_date' => $matrixDate->format('Y-m-d')],
+            'period_matrix' => $periodMatrix,
             'current_period' => $currentPeriod,
             'previous_period' => $previousPeriod,
             'weekday_period' => $weekdayPeriod,

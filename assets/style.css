@@ -397,10 +397,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .report-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .report-custom-range { display: flex; align-items: end; gap: 12px; margin-top: 14px; }
 .report-custom-range .field { flex: 1; }
-.report-compare-controls { display: grid; grid-template-columns: minmax(220px, .85fr) minmax(0, 1.15fr); align-items: end; gap: 14px; margin-top: 15px; padding: 13px 14px; border: 1px solid #e7efec; border-radius: 11px; background: #f8fbfa; }
-.report-compare-controls .field { min-width: 0; }
-.report-compare-help { margin: 0 0 3px; color: #82918f; font-size: 10px; line-height: 1.6; }
-.report-compare-custom-range { margin-top: 10px; }
+.report-matrix-card { padding-bottom: 15px; margin-bottom: 17px; }
+.report-matrix-wrap { overflow: auto; margin: 16px 20px 0; border: 1px solid #e8eeee; border-radius: 11px; }
+.report-matrix { width: 100%; min-width: 1080px; border-collapse: separate; border-spacing: 0; color: #53666c; font-size: 10px; }
+.report-matrix th, .report-matrix td { padding: 9px 10px; border-right: 1px solid #edf1f1; border-bottom: 1px solid #edf1f1; text-align: right; white-space: nowrap; }
+.report-matrix thead th { color: #5b7076; background: #f7f9f9; font-size: 9px; font-weight: 700; }
+.report-matrix thead tr:first-child th { color: #32715f; background: #eef7f3; text-align: center; letter-spacing: .3px; }
+.report-matrix thead tr:first-child th.report-matrix-description { text-align: left; }
+.report-matrix thead th small { display: block; margin-top: 4px; color: #96a3a6; font-size: 8px; font-weight: 500; }
+.report-matrix-description, .report-matrix tbody th { position: sticky; left: 0; z-index: 1; min-width: 170px; text-align: left !important; }
+.report-matrix thead .report-matrix-description { z-index: 2; }
+.report-matrix tbody th { color: #435b61; background: #fff; font-weight: 650; }
+.report-matrix tbody tr:nth-child(even) th, .report-matrix tbody tr:nth-child(even) td { background-color: #fbfcfc; }
+.report-matrix tbody td.report-matrix-amount { font-variant-numeric: tabular-nums; }
+.report-matrix .report-matrix-variance { font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-matrix .is-favorable { color: #328269; background: #f3faf6; }
+.report-matrix .is-unfavorable { color: #bd6e5c; background: #fff7f4; }
+.report-matrix .is-flat { color: #849298; }
+.report-matrix tbody tr.report-matrix-total th, .report-matrix tbody tr.report-matrix-total td { border-bottom: 0; color: #254d48; background: #eff7f3; font-weight: 800; }
+.report-matrix-empty { padding: 20px !important; color: #98a5a8; text-align: center !important; }
+.report-matrix-wrap + .report-accuracy-note { margin-top: 12px; }
 .report-range-separator { padding-bottom: 12px; color: #8b999e; font-size: 10px; }
 .report-filter-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #eef2f2; }
 .report-compare-toggle { display: inline-flex; align-items: center; gap: 9px; color: #4d6168; font-size: 11px; font-weight: 600; cursor: pointer; }
@@ -662,10 +678,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .finance-top-grid, .reminder-summary-grid, .report-summary-grid, .report-comparison-grid, .report-filter-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
   .finance-top-grid .finance-metric:last-child, .reminder-summary-grid .reminder-stat:last-child { grid-column: 1 / -1; }
   .report-filter-card { padding: 15px; }
+  .report-matrix-wrap { margin-right: 12px; margin-left: 12px; }
   .report-filter-footer { align-items: flex-start; flex-direction: column; }
   .report-period-meta { text-align: left; }
   .report-custom-range { flex-direction: column; align-items: stretch; }
-  .report-compare-controls { grid-template-columns: 1fr; gap: 8px; padding: 12px; }
   .report-range-separator { padding: 0; }
   .report-category-row { grid-template-columns: 1fr; gap: 8px; }
   .report-category-amount { text-align: left; }
