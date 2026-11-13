@@ -156,7 +156,9 @@
       options.headers['X-CSRF-Token'] = state.csrf;
       options.body = JSON.stringify(data || {});
     }
-    const [actionName, rawQuery = ''] = action.split('&', 2);
+    const queryIndex = action.indexOf('&');
+    const actionName = queryIndex < 0 ? action : action.slice(0, queryIndex);
+    const rawQuery = queryIndex < 0 ? '' : action.slice(queryIndex + 1);
     const endpoint = `/api.php?action=${encodeURIComponent(actionName)}${rawQuery ? `&${rawQuery}` : ''}`;
     let response = await fetch(endpoint, options);
 
