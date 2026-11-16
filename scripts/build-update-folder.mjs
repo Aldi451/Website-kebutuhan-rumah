@@ -9,7 +9,9 @@ const updateRoot = path.join(root, 'update');
 const files = [
   ['index.php', 'website/index.php'],
   ['api.php', 'website/api.php'],
+  ['includes/google-calendar.php', 'website/includes/google-calendar.php'],
   ['assets/app.js', 'website/assets/app.js'],
+  ['assets/calendar.js', 'website/assets/calendar.js'],
   ['assets/clipboard-import.js', 'website/assets/clipboard-import.js'],
   ['assets/style.css', 'website/assets/style.css'],
 ];

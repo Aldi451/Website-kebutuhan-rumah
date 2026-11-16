@@ -1,3 +1,9 @@
+# Update Google Kalender otomatis
+
+Paket terbaru menambahkan **Pengaturan → Google Kalender otomatis**: Client ID/Secret, callback, login OAuth, pilihan alarm, dan sakelar otomatis. Setelah koneksi disetujui, Simpan reminder baru juga membuat agenda di kalender utama Google. Tidak perlu edit script untuk mengganti konfigurasi berikutnya.
+
+**Upload paket ini satu kali terlebih dahulu**; gunakan ZIP di bawah. File baru `includes/google-calendar.php` wajib ikut dipasang. Tidak perlu migrasi database. Hosting harus mendukung HTTPS, PHP cURL, dan koneksi ke Google. Panduan Google Cloud lengkap ada pada README utama bagian Google Kalender otomatis. Impor massal dan edit/hapus belum disinkronkan.
+
 # Paket update — pembanding periode laporan & import clipboard
 
 Paket ini membawa perubahan **Laporan keuangan** (pemilih periode pembanding dan rentang tanggal khusus) sekaligus file import clipboard yang sudah ada. Hanya file runtime yang perlu diperbarui yang dikemas; file lain di hosting tidak perlu disentuh. **Jangan upload seluruh folder `update/` ke `htdocs`.**
@@ -15,7 +21,9 @@ ZIP tersebut sudah membawa struktur folder yang benar:
 ```
 index.php
 api.php
+includes/google-calendar.php
 assets/app.js
+assets/calendar.js
 assets/clipboard-import.js
 assets/style.css
 ```

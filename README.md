@@ -422,3 +422,34 @@ Gunakan kata kunci yang tersedia (`laporan`, `target`, `saldo`, `kategori ...`, 
 ## Ide lanjutan yang cocok untuk website pribadi
 
 Kalau ingin dikembangkan setelah versi dasar ini, yang paling berguna biasanya: ekspor transaksi ke CSV/Excel, transaksi berulang (listrik/internet/langganan), target dana darurat atau tabungan, inventaris barang rumah beserta garansi/nota servis, dan ringkasan pengeluaran per kategori. Untuk pemakaian keluarga, riwayat perubahan dan backup otomatis juga layak diprioritaskan.
+
+## Google Kalender otomatis (konfigurasi lewat Pengaturan)
+
+Setelah satu kali memasang paket update terbaru, admin tidak perlu mengedit script/config.php untuk konfigurasi Google lagi. Buka **Pengaturan → Google Kalender otomatis**.
+
+### Setup satu kali
+
+1. Gunakan website pada domain **HTTPS**. Hosting perlu PHP cURL, sertifikat CA yang valid, dan akses keluar ke `accounts.google.com`, `oauth2.googleapis.com`, serta `www.googleapis.com`.
+2. Di Google Cloud Console buat/pilih project, aktifkan **Google Calendar API**, dan siapkan **Google Auth Platform / OAuth consent screen**. Jika audience External masih Testing, tambahkan email Google sendiri sebagai **test user**. Izin offline pada mode Testing dapat kedaluwarsa setelah 7 hari; hubungkan ulang bila perlu atau siapkan publishing sesuai persyaratan Google.
+3. Buat OAuth Client ID bertipe **Web application**. Daftarkan **Authorized redirect URI** persis seperti yang ditampilkan di Pengaturan: `https://domain-kamu/api.php?action=google/callback`. Jangan gunakan URL preview untuk koneksi produksi.
+4. Isi Client ID, Client Secret, callback HTTPS, dan waktu notifikasi di Pengaturan. Centang **Otomatis kirim reminder baru**, lalu **Simpan konfigurasi**.
+5. Klik **Hubungkan akun Google**, pilih akun tujuan, dan setujui izin kalender. Setelah kembali, buka Pengaturan untuk memeriksa status. Client Secret yang dikosongkan saat menyimpan akan tetap memakai nilai lama. Mengganti kredensial/callback memutus koneksi lama dan memerlukan login ulang.
+6. Buat reminder beberapa menit ke depan. Klik **Simpan** satu kali: reminder disimpan di website, lalu agenda dibuat melalui API di **kalender utama** akun Google yang terhubung, dengan alarm popup sesuai Pengaturan. Tidak perlu tombol Simpan kedua di Google.
+
+### Perilaku dan batasan
+
+- Satu akun/kalender utama untuk seluruh rumah, bukan koneksi per anggota. Judul, kategori, catatan, dan waktu reminder baru dari semua anggota dikirim ke kalender ini. Lampiran gambar tidak dikirim.
+- Tanpa jam → pukul **09:00**, durasi agenda 30 menit, memakai zona waktu server. Setelan alarm baru berlaku pada agenda yang dibuat setelah pengaturan disimpan.
+- Jika Google gagal, reminder **tetap tersimpan**. Pesan hasil simpan dan panel Pengaturan menjelaskan kegagalan terakhir. Tombol **Google ↻** pada reminder aktif milik sendiri (atau admin) mengirim/mencoba lagi; ID agenda tetap membuat retry aman jika respons Google sebelumnya timeout. Tombol ini juga bisa mengirim agenda lama satu per satu selama fitur otomatis aktif. Tidak ada retry latar belakang/cron.
+- **Belum sinkronisasi dua arah**: impor massal, edit, selesai, aktifkan ulang, dan hapus tidak otomatis memperbarui agenda. Kelola agenda yang sudah terkirim langsung di Google. Retry agenda yang sudah ada tidak memperbarui judul/jadwal/alarm.
+- Ikon kalender lama tetap tersedia sebagai alternatif formulir manual tanpa OAuth, tetapi menyimpan lewat formulir tersebut bisa membuat duplikat agenda otomatis.
+- Google Calendar menentukan pengiriman notifikasi; aktifkan izin notifikasi/suara dan sinkronisasi akun di HP. Mode senyap, Jangan Ganggu, dan penghemat baterai dapat memengaruhinya. Uji di perangkat asli.
+- Tombol putus koneksi menghapus refresh token lokal dan menonaktifkan otomatis, bukan menghapus agenda lama. Untuk mencabut persetujuan sepenuhnya, hapus akses aplikasi melalui halaman keamanan akun Google. Mengganti akun mengubah tujuan agenda berikutnya; agenda lama tetap di akun lama.
+
+### Keamanan dan pemeliharaan
+
+Konfigurasi hanya bisa dikelola admin. OAuth memakai state sekali pakai (10 menit), sesi login admin, dan PKCE; semua aksi POST dilindungi CSRF. Client Secret dan refresh token hanya di database server, tidak ditampilkan dalam respons Pengaturan; **nilai ini tersimpan di database dan ikut backup SQL**, sehingga lindungi akses database/backup seperti kata sandi. Jangan kirim kredensial melalui chat. Scope yang diminta `calendar.events.owned` untuk mengelola event pada kalender yang dimiliki akun.
+
+Tidak memerlukan perubahan skema database: memakai tabel `app_settings` yang sudah ada. File runtime baru `includes/google-calendar.php` wajib ikut diunggah. Jika memperoleh `redirect_uri_mismatch`, samakan callback di Google Cloud dan Pengaturan, termasuk HTTPS dan query string. Jika `invalid_grant`, hubungkan ulang akun. Jika HTTP 403, periksa Calendar API, consent, dan izin akun.
+
+Tes lokal: `node scripts/test-google-calendar.mjs` (PHP melalui WASM) dan `node scripts/test-calendar.mjs`. Tes OAuth dengan akun nyata dan notifikasi HP memerlukan deployment HTTPS serta kredensial Google milik admin; tes lokal tidak menggantikannya.

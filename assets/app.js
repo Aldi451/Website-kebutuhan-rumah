@@ -1903,7 +1903,7 @@
         <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${reminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon coral">${icon('check')}</span><span><strong>${done}</strong><span>Selesai · ${total} total</span></span></article>
       </div>
-      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Agenda yang dibuat keluarga · bisa diubah, dikirim ulang ke WhatsApp, atau ditandai selesai</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
+      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Aktifkan Google Kalender otomatis di Pengaturan untuk reminder baru. Tombol kirim Google mencoba lagi ke akun terhubung; ikon kalender membuka formulir manual (bisa membuat duplikat). Perubahan/hapus belum disinkronkan.</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
   }
 
   function reminderItem(item) {
@@ -1921,7 +1921,7 @@
     const thumb = item.attachment ? `<button class="reminder-thumb" type="button" data-action="open-proof" data-entity="reminder" data-id="${Number(item.id)}" aria-label="Lihat bukti gambar"><img src="${escapeHtml(item.attachment.url)}" alt="Bukti ${escapeHtml(item.title)}" loading="lazy"></button>` : '';
     const sendButton = `<button class="send-button" type="button" data-action="send-reminder" data-id="${Number(item.id)}" aria-label="Kirim pengingat ini ke WhatsApp sekarang" title="Kirim ke WhatsApp sekarang">${icon('send')}</button>`;
     const editButton = canManage ? `<button class="edit-button" type="button" data-action="edit-reminder" data-id="${Number(item.id)}" aria-label="Ubah pengingat" title="Ubah pengingat">${icon('edit')}</button>` : '';
-    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${sendButton}${editButton}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
+    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${!isDone && canManage ? `<button class="btn btn-secondary btn-small" type="button" data-action="google-send" data-id="${Number(item.id)}" aria-label="Kirim atau coba lagi ke Google Kalender terhubung" title="Kirim / coba lagi ke Google Kalender terhubung">Google ↻</button>` : ''}${!isDone ? `<button class="edit-button" type="button" data-action="calendar-reminder" data-id="${Number(item.id)}" aria-label="Tambahkan ke Google Kalender" title="Buka Google Kalender">${icon('calendar')}</button>` : ''}${sendButton}${editButton}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
   }
 
   function membersMarkup() {
@@ -1932,6 +1932,27 @@
     }).join('');
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> akses keluarga</span><h1>Anggota rumah</h1><p>Kelola siapa saja yang bisa mencatat keuangan dan agenda bersama.</p></div><div class="heading-actions"><button class="btn" type="button" data-action="open-user">${icon('plus')} Tambah anggota</button></div></div>
       <div class="grid members-grid"><article class="card list-card"><div class="card-head" style="padding-bottom:14px"><div><h2 class="card-title">Akun yang terdaftar</h2><p class="card-subtitle">${members.length} akun · catatan dibagikan bersama</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Nama pengguna</th><th>Peran</th><th>HP / WhatsApp</th><th>Bergabung</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">Belum ada anggota.</td></tr>'}</tbody></table></div></article><aside class="card members-note"><span class="target-glyph">${icon('shield')}</span><h3>Data satu rumah</h3><p>Anggota yang kamu tambahkan akan berbagi daftar transaksi, target pengeluaran, dan pengingat yang sama. Setiap catatan tetap menampilkan siapa yang membuatnya.</p><p style="margin-top:10px;color:#8a9ba0;font-size:10px">Tambahkan nomor HP di setiap anggota agar bisa dipilih sebagai penerima notifikasi WhatsApp di menu Pengaturan.</p><button class="btn-link" type="button" data-page="settings" style="margin-top:13px">Buka pengaturan notifikasi ${icon('arrowRight')}</button></aside></div>`;
+  }
+
+  function googleCalendarSettingsMarkup() {
+    if (state.user?.role !== 'admin') return '';
+    const g = state.settings?.google_calendar || {};
+    const callback = g.redirect_uri || `${window.location.origin}/api.php?action=google/callback`;
+    return `<section class="card settings-card" style="grid-column:1/-1"><div class="card-head"><div><h2 class="card-title">Google Kalender otomatis</h2><p class="settings-description">Simpan reminder baru di website → agenda dibuat di kalender utama akun Google yang dihubungkan.</p></div>${icon('calendar')}</div>
+      <div class="connection-banner${g.connected ? '' : ' disconnected'}">${g.connected ? 'Akun terhubung' : 'Belum terhubung'} · ${g.enabled ? 'Otomatis diaktifkan' : 'Otomatis nonaktif'}</div>
+      ${g.last_error ? `<p class="error-text">${escapeHtml(g.last_error)}</p>` : ''}
+      <form data-form="google-save" class="form-grid">
+        <div class="field full-span"><label for="google-id">Google OAuth Client ID</label><input class="input" id="google-id" name="client_id" value="${escapeHtml(g.client_id || '')}" maxlength="300" required></div>
+        <div class="field full-span"><label for="google-secret">Client Secret</label><input class="input" id="google-secret" name="client_secret" type="password" maxlength="500" autocomplete="new-password" placeholder="${g.has_secret ? 'Kosongkan untuk memakai secret tersimpan' : 'Tempel dari Google Cloud'}" ${g.has_secret ? '' : 'required'}></div>
+        <div class="field full-span"><label for="google-redirect">Authorized redirect URI (harus sama di Google Cloud)</label><input class="input" id="google-redirect" name="redirect_uri" type="url" value="${escapeHtml(callback)}" required></div>
+        <div class="field"><label for="google-minutes">Notifikasi sebelum agenda</label><select class="select" id="google-minutes" name="minutes">${[[0,'Tepat waktu'],[5,'5 menit'],[10,'10 menit'],[30,'30 menit'],[60,'1 jam'],[1440,'1 hari']].map(([n,label]) => `<option value="${n}"${Number(g.minutes ?? 10) === n ? ' selected' : ''}>${label}</option>`).join('')}</select></div>
+        <div class="field"><label><input type="checkbox" name="enabled" value="1"${g.enabled ? ' checked' : ''}> Otomatis kirim reminder baru</label></div>
+        <div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn" type="submit">Simpan konfigurasi</button></div>
+      </form>
+      <div class="settings-actions"><button class="btn btn-secondary" type="button" data-action="google-connect">${g.connected ? 'Hubungkan ulang / ganti akun' : 'Hubungkan akun Google'}</button>${g.connected ? '<button class="btn btn-danger" type="button" data-action="google-disconnect">Putuskan koneksi</button>' : ''}</div>
+      <ol class="steps-list"><li>Di Google Cloud, aktifkan <strong>Google Calendar API</strong>, lalu siapkan OAuth consent screen. Jika mode Testing, tambahkan email Google kamu sebagai test user.</li><li>Buat OAuth Client bertipe <strong>Web application</strong>. Masukkan URL callback di atas sebagai <strong>Authorized redirect URI</strong>.</li><li>Isi Client ID dan Secret di sini, centang otomatis, lalu <strong>Simpan konfigurasi</strong>.</li><li>Klik <strong>Hubungkan akun Google</strong>, pilih akun tujuan dan izinkan akses kalender. Kembali ke website, lalu buat reminder percobaan.</li></ol>
+      <div class="security-tip">Satu kalender utama untuk satu rumah: reminder baru dari semua anggota dikirim ke akun ini, bukan otomatis ke kalender masing-masing anggota. Tanpa jam dijadwalkan pukul 09:00. Aktifkan notifikasi Google Kalender di HP. Jika gagal, reminder tetap tersimpan; gunakan tombol kirim Google pada agenda untuk mencoba lagi tanpa membuat duplikat. Impor massal serta ubah/hapus/selesai belum disinkronkan; kelola agenda lama langsung di Google Kalender. Secret/token disimpan di database server dan ikut backup: jaga file backup tetap privat. Mode Testing Google dapat membuat izin offline kedaluwarsa setelah 7 hari.</div>
+    </section>`;
   }
 
   function settingsMarkup() {
@@ -2013,6 +2034,7 @@
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> kelola akun</span><h1>Pengaturan</h1><p>Jaga akun tetap aman${isAdmin ? ' dan sambungkan pengingat ke WhatsApp' : ''}.</p></div></div>
       <div class="grid settings-grid"${isAdmin ? '' : ' style="grid-template-columns:minmax(0,680px)"'}>
         <section class="card settings-card"><div class="card-head"><div><h2 class="card-title">Keamanan akun</h2><p class="settings-description">Sedang masuk sebagai <strong>${escapeHtml(state.user?.name)}</strong> (@${escapeHtml(state.user?.username)}).</p></div><span class="target-glyph">${icon('lock')}</span></div><form data-form="password-change" class="form-grid"><div class="field full-span"><label for="current-password">Kata sandi saat ini</label><input class="input" id="current-password" name="current_password" type="password" autocomplete="current-password" required></div><div class="field full-span"><label for="new-password">Kata sandi baru</label><input class="input" id="new-password" name="new_password" type="password" minlength="8" autocomplete="new-password" placeholder="Minimal 8 karakter" required></div><div class="field full-span"><label for="confirm-password">Ulangi kata sandi baru</label><input class="input" id="confirm-password" name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></div><div class="full-span"><p class="error-text" data-form-error hidden></p><button class="btn btn-soft" type="submit">${icon('shield')} Ganti kata sandi</button></div></form><div class="security-tip"><strong>Saran:</strong> gunakan kata sandi unik dan jangan membagikan akun admin. Kata sandi disimpan dalam bentuk hash.</div></section>
+        ${googleCalendarSettingsMarkup()}
         ${whatsappPanel}
         ${notifyPanel}
         ${botPanel}
@@ -2220,6 +2242,29 @@
     else if (action === 'delete-proof') await deleteProof(actionButton.dataset.id);
     else if (action === 'open-transaction') openTransactionModal(actionButton.dataset.kind || 'expense');
     else if (action === 'open-reminder') openReminderModal();
+    else if (action === 'google-connect' || action === 'google-disconnect') {
+      if (action === 'google-disconnect' && !window.confirm('Putuskan koneksi? Agenda yang sudah dibuat di Google tidak dihapus.')) return;
+      await withBusyButton(actionButton, async () => {
+        const result = await api(action === 'google-connect' ? 'google/connect' : 'google/disconnect', {});
+        if (result.url) window.location.assign(result.url);
+        else { showToast(result.message); state.settings = null; await refreshPage(true); }
+      }, 'Memproses…');
+    }
+    else if (action === 'google-send') {
+      await withBusyButton(actionButton, async () => {
+        const result = await api('google/send', { id: Number(actionButton.dataset.id) });
+        showToast(result.message);
+      }, 'Mengirim…');
+    }
+    else if (action === 'calendar-reminder') {
+      const record = findEntityRecord('reminder', actionButton.dataset.id);
+      if (!record) { showToast('Data pengingat belum termuat. Muat ulang halaman.', 'error'); return; }
+      if (record.status !== 'pending') { showToast('Aktifkan kembali pengingat sebelum menambahkan ke Google Kalender.', 'error'); return; }
+      try {
+        window.open(ReminderCalendar.googleUrl(record, appTimeZone), '_blank', 'noopener,noreferrer');
+        showToast('Di Google Kalender, atur notifikasi lalu tekan Simpan. Jika tab tidak terbuka, izinkan pop-up situs ini.');
+      } catch (error) { showToast(error.message || 'Google Kalender gagal dibuka.', 'error'); }
+    }
     else if (action === 'edit-transaction') {
       const record = findEntityRecord('transaction', actionButton.dataset.id);
       if (!record) { showToast('Data transaksi belum termuat. Muat ulang halaman lalu coba lagi.', 'error'); return; }
@@ -2443,6 +2488,11 @@
         const result = await api('password/change', { current_password: data.current_password, new_password: data.new_password });
         form.reset();
         showToast(result.message);
+      } else if (kind === 'google-save') {
+        const result = await api('google/save', { ...data, enabled: data.enabled === '1', minutes: Number(data.minutes) });
+        showToast(result.message);
+        state.settings = null;
+        await refreshPage(true);
       } else if (kind === 'whatsapp-save') {
         const result = await api('whatsapp/save', { token: data.token, target: data.target });
         showToast(result.message, result.whatsapp_sent ? 'success' : 'error');

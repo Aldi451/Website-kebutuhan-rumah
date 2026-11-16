@@ -33,7 +33,8 @@ try {
     </script>
     <script defer src="/assets/importer.js?v=2"></script>
     <script defer src="/assets/clipboard-import.js?v=2"></script>
-    <script defer src="/assets/app.js?v=18"></script>
+    <script defer src="/assets/calendar.js?v=2"></script>
+    <script defer src="/assets/app.js?v=21"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">
