@@ -8,9 +8,16 @@ const updateRoot = path.join(root, 'update');
 // Paket update laporan/perbandingan periode dan import clipboard: file runtime yang berubah.
 const files = [
   ['index.php', 'website/index.php'],
+  ['security-contact.php', 'website/security-contact.php'],
+  ['.htaccess', 'website/.htaccess'],
+  ['includes/.htaccess', 'website/includes/.htaccess'],
+  ['includes/app.php', 'website/includes/app.php'],
+  ['includes/wa.php', 'website/includes/wa.php'],
+  ['includes/security.php', 'website/includes/security.php'],
   ['api.php', 'website/api.php'],
   ['includes/google-calendar.php', 'website/includes/google-calendar.php'],
   ['assets/app.js', 'website/assets/app.js'],
+  ['assets/importer.js', 'website/assets/importer.js'],
   ['assets/calendar.js', 'website/assets/calendar.js'],
   ['assets/clipboard-import.js', 'website/assets/clipboard-import.js'],
   ['assets/style.css', 'website/assets/style.css'],

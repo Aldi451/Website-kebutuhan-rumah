@@ -7,3 +7,5 @@ storage/*.db
 cloudflare-backup/.dev.vars
 cloudflare-backup/.wrangler/
 .DS_Store
+
+.venv/

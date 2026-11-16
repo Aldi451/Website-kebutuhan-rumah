@@ -1,3 +1,21 @@
+# Tambahan hasil laporan tim keamanan
+
+Paket sekarang juga membawa `security-contact.php`, rewrite `/.well-known/security.txt`, HSTS pada HTTPS, header COOP/CORP/COEP produksi, no-store untuk lampiran, dan header bersama untuk endpoint PHP. Baca **SECURITY-REMEDIATION.md** di repository sebelum deployment. Header baseline static/Apache memerlukan mod_headers; canonical security.txt memerlukan mod_rewrite.
+
+**Kontak belum diisi otomatis.** Di config.php hosting, isi `security_contact` dengan mailto/URL HTTPS pelaporan yang kamu kuasai dan `security_contact_expires` dengan waktu UTC masa depan (maksimal sekitar satu tahun). Keduanya wajib valid agar security.txt mengembalikan 200; jika belum siap/expired, statusnya 503. Kontak ini bersifat publik. HSTS mulai 86400 detik; verifikasi sertifikat/HTTPS hosting sebelum memperpanjang masa berlakunya. Jangan mengaktifkan HSTS includeSubDomains/preload tanpa audit seluruh domain.
+
+DNS, SPF/DMARC/DKIM, CAA, DNSSEC, sertifikat, dan WAF tidak berubah lewat ZIP ini. Lakukan retest di domain yang benar; sebagian bukti laporan eksternal perlu dikonfirmasi.
+
+# Update keamanan — baca sebelum memasang
+
+1. Backup database dan simpan **di luar folder publik**. Jangan menimpa `config.php` lama dengan file contoh.
+2. Jika password admin masih bawaan, tambahkan `admin_bootstrap_password` dengan password unik **12–72 byte** ke array `return [...]` dalam `config.php` hosting sebelum upload. Jika password sudah dikustomisasi, langkah ini tidak perlu. Jangan membagikan nilai ini.
+3. Ekstrak ZIP terbaru ke `htdocs`, termasuk file tersembunyi **`.htaccess`** dan seluruh `includes/` dari paket. Paket tidak membawa kredensial atau database. Jika `.htaccess` hosting sudah dikustomisasi, gabungkan aturan dengan hati-hati.
+4. Login ulang. Akun dengan password bawaan lama menggunakan password bootstrap yang baru. Setelah berhasil, hapus nilai `admin_bootstrap_password` dari config.php.
+5. Hapus ZIP dari `htdocs`, lakukan Ctrl+F5, dan uji login, ganti password, upload bukti, dan OAuth. Pastikan `/includes/security.php`, `/config.php.bak`, `/.git/HEAD`, serta file backup SQL ditolak (403/404).
+
+Perubahan: tidak ada password admin publik; login throttling persisten; sesi dicabut saat password berubah; batas sesi; CSP/headers; pembatasan berkas sensitif dan ukuran request. Tabel limiter dibuat otomatis saat login, tanpa impor SQL manual. Lihat `SECURITY-AUDIT.md` pada repository. Pengaturan Google yang sudah tersimpan tidak dihapus.
+
 # Update Google Kalender otomatis
 
 Paket terbaru menambahkan **Pengaturan → Google Kalender otomatis**: Client ID/Secret, callback, login OAuth, pilihan alarm, dan sakelar otomatis. Setelah koneksi disetujui, Simpan reminder baru juga membuat agenda di kalender utama Google. Tidak perlu edit script untuk mengganti konfigurasi berikutnya.
@@ -21,8 +39,15 @@ ZIP tersebut sudah membawa struktur folder yang benar:
 ```
 index.php
 api.php
+security-contact.php
 includes/google-calendar.php
+includes/app.php
+includes/wa.php
+includes/security.php
+includes/.htaccess
+.htaccess
 assets/app.js
+assets/importer.js
 assets/calendar.js
 assets/clipboard-import.js
 assets/style.css
@@ -38,6 +63,9 @@ Salin isi `website/` ke document root situs (`htdocs`), **dengan susunan folder 
 | --- | --- | --- |
 | `website/index.php` | `htdocs/index.php` (root!) | diganti |
 | `website/api.php` | `htdocs/api.php` (root!) | diganti |
+| `website/security-contact.php` | `htdocs/security-contact.php` | baru, kontak publik terkonfigurasi |
+| `website/.htaccess` | `htdocs/.htaccess` | aturan keamanan |
+| `website/includes/*` termasuk `.htaccess` | `htdocs/includes/` | wajib ikut |
 | `website/assets/app.js` | `htdocs/assets/app.js` | diganti |
 | `website/assets/clipboard-import.js` | `htdocs/assets/clipboard-import.js` | **baru** |
 | `website/assets/style.css` | `htdocs/assets/style.css` | diganti |
