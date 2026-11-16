@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
+require_once __DIR__ . '/includes/google-calendar.php';
 app_start_session();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -64,6 +65,7 @@ try {
     }
 
     $user = app_require_user();
+    app_gc_routes($action, $method, $input, $user);
 
     // Mengirim gambar bukti apa adanya (bukan JSON). Dipakai oleh <img> di halaman bukti.
     if ($action === 'attachment' && $method === 'GET') {
@@ -855,6 +857,7 @@ try {
             }
             throw $error;
         }
+        $googleCalendar = app_gc_create($reminderId);
         $whatsapp = app_send_whatsapp_broadcast(app_reminder_message([
             'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
             'note' => $note, 'created_by_name' => $user['display_name'],
@@ -867,11 +870,13 @@ try {
         app_json([
             'ok' => true,
             'message' => trim(($receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.')
+                . (empty($googleCalendar['skipped']) ? ' ' . $googleCalendar['message'] : '')
                 . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')
                 . (($whatsapp['ok'] ?? false) ? ' (' . (string) ($whatsapp['description'] ?? '') . ')' : '')),
             'whatsapp_sent' => (bool) ($whatsapp['ok'] ?? false),
             'whatsapp_message' => (string) ($whatsapp['description'] ?? ''),
             'whatsapp_sent_count' => (int) ($whatsapp['sent'] ?? 0),
+            'google_calendar' => $googleCalendar,
             'has_receipt' => $receipt !== null,
             'has_time' => $hasTime,
         ]);
@@ -1256,6 +1261,7 @@ try {
         }
         app_json([
             'ok' => true,
+            'google_calendar' => $isAdmin ? app_gc_status() : null,
             'can_manage_whatsapp' => $isAdmin,
             'whatsapp' => [
                 'connected' => $credentials['token'] !== '' && $credentials['target'] !== '',

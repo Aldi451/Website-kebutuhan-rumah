@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import '../assets/calendar.js';
+const { googleUrl } = globalThis.ReminderCalendar;
+const record = { id: 12, title: 'Bayar, listrik; rumah 🏠', note: 'Baris 1\nBaris 2\\akhir', category: 'Tagihan', reminder_at: '2026-12-31 23:45:00', has_time: 1 };
+const url = new URL(googleUrl(record, 'Asia/Jakarta'));
+assert.equal(url.origin, 'https://calendar.google.com');
+assert.equal(url.searchParams.get('text'), record.title);
+assert.equal(url.searchParams.get('dates'), '20261231T164500Z/20261231T171500Z');
+assert.equal(url.searchParams.get('ctz'), 'Asia/Jakarta');
+assert.ok(url.searchParams.get('details').includes(record.note));
+const noTime = new URL(googleUrl({ ...record, has_time: 0 }, 'Asia/Jakarta'));
+assert.equal(noTime.searchParams.get('dates'), '20261231T020000Z/20261231T023000Z');
+assert.equal(new URL(googleUrl(record, 'Asia/Makassar')).searchParams.get('dates'), '20261231T154500Z/20261231T161500Z');
+const rollover = new URL(googleUrl({ ...record, reminder_at: '2026-12-31 23:45:00' }, 'UTC'));
+assert.equal(rollover.searchParams.get('dates'), '20261231T234500Z/20270101T001500Z');
+assert.throws(() => googleUrl({ ...record, reminder_at: 'invalid' }, 'Asia/Jakarta'));
+console.log('Calendar tests passed: URL, timezone, date rollover, default time, title and note encoding, invalid input.');
