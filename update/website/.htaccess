@@ -1,0 +1,34 @@
+Options -Indexes
+
+# Never serve credentials, backup copies, raw databases, or repository metadata.
+<FilesMatch "(?i)(^config(?:\..*)?$|^\.env(?:\..*)?$|^composer\.(json|lock)$|\.(sql|sqlite(?:3)?|db|bak|old|orig|save|log|zip)(?:[-.].*)?$|~$)">
+    Require all denied
+</FilesMatch>
+<IfModule mod_alias.c>
+    RedirectMatch 404 "/\.(?!well-known(?:/|$))"
+</IfModule>
+
+# RFC 9116 contact served from owner-controlled config.php (no database needed).
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^\.well-known/security\.txt$ security-contact.php [L]
+</IfModule>
+
+# Apply baseline headers to static files and Apache-generated responses as well.
+# Do not put a second CSP here: the PHP page uses a per-response script nonce.
+<IfModule mod_headers.c>
+    Header onsuccess unset X-Content-Type-Options
+    Header always set X-Content-Type-Options "nosniff"
+    Header onsuccess unset Referrer-Policy
+    Header always set Referrer-Policy "no-referrer"
+    Header onsuccess unset Permissions-Policy
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header onsuccess unset X-Frame-Options
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header onsuccess unset Cross-Origin-Opener-Policy
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header onsuccess unset Cross-Origin-Resource-Policy
+    Header always set Cross-Origin-Resource-Policy "same-origin"
+    Header onsuccess unset Cross-Origin-Embedder-Policy
+    Header always set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>

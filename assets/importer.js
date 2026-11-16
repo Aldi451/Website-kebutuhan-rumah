@@ -120,15 +120,33 @@
     const end = start + entry.compressedSize;
     if (end > view.byteLength) fail('File Excel terpotong atau rusak.');
     const payload = new Uint8Array(buffer, start, entry.compressedSize);
-    if (entry.method === 0) return payload;
+    if (entry.method === 0) {
+      if (payload.byteLength > MAX_XML_BYTES || payload.byteLength !== entry.uncompressedSize) fail('Ukuran bagian Excel tidak valid atau terlalu besar.');
+      return payload;
+    }
     if (entry.method !== 8 || typeof DecompressionStream === 'undefined') {
       fail('Browser tidak bisa membuka file .xlsx ini. Simpan sebagai CSV UTF-8 lalu coba lagi.');
     }
     try {
       const stream = new Blob([payload]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      const result = await new Response(stream).arrayBuffer();
-      if (result.byteLength > MAX_XML_BYTES) fail('Bagian di dalam file Excel terlalu besar.');
-      return new Uint8Array(result);
+      const reader = stream.getReader();
+      const chunks = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          // Check while inflating, not after allocating the full decompressed ZIP.
+          if (size > MAX_XML_BYTES) { await reader.cancel(); fail('Bagian di dalam file Excel terlalu besar.'); }
+          chunks.push(value);
+        }
+      } finally { reader.releaseLock(); }
+      if (size !== entry.uncompressedSize) fail('Ukuran bagian Excel tidak cocok.');
+      const result = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
+      return result;
     } catch (error) {
       if (error instanceof Error && error.message.includes('terlalu besar')) throw error;
       fail('Gagal membuka workbook. Coba simpan ulang sebagai .xlsx atau CSV UTF-8.');
@@ -147,6 +165,7 @@
   }
 
   function parseXml(text) {
+    if (/<!DOCTYPE|<!ENTITY/i.test(text)) fail('Deklarasi DTD/entity tidak diizinkan di file Excel.');
     if (typeof DOMParser === 'undefined') fail('Browser belum mendukung pembacaan Excel. Simpan file sebagai CSV UTF-8 lalu coba lagi.');
     const document = new DOMParser().parseFromString(text, 'application/xml');
     if (document.getElementsByTagName('parsererror').length) fail('Isi workbook Excel tidak valid.');
@@ -190,8 +209,10 @@
       for (const cell of elements(rowNode, 'c')) {
         const address = /^([A-Z]+)/i.exec(cell.getAttribute('r') || '');
         if (!address) continue;
+        if (address[1].length > 3) fail('Alamat kolom Excel tidak valid.');
         let column = 0;
         for (const letter of address[1].toUpperCase()) column = column * 26 + letter.charCodeAt(0) - 64;
+        if (column > 16384) fail('Alamat kolom Excel melewati batas XFD.');
         const index = column - 1;
         const type = cell.getAttribute('t') || '';
         const valueNode = elements(cell, 'v')[0];

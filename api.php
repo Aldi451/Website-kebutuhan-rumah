@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
 require_once __DIR__ . '/includes/google-calendar.php';
+app_allow_methods(['GET', 'POST']);
 app_start_session();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -13,7 +14,10 @@ if ($action === 'csrf' && $method === 'GET') {
 }
 
 if ($method !== 'GET') {
-    $raw = file_get_contents('php://input');
+    $maxBody = 12 * 1024 * 1024;
+    if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > $maxBody) app_json(['ok' => false, 'message' => 'Permintaan terlalu besar.'], 413);
+    $raw = file_get_contents('php://input', false, null, 0, $maxBody + 1);
+    if (is_string($raw) && strlen($raw) > $maxBody) app_json(['ok' => false, 'message' => 'Permintaan terlalu besar.'], 413);
     $decoded = json_decode($raw === false ? '' : $raw, true);
     if (is_array($decoded)) {
         $input = $decoded;
@@ -34,16 +38,24 @@ try {
     if ($action === 'login' && $method === 'POST') {
         $username = trim((string) ($input['username'] ?? ''));
         $password = (string) ($input['password'] ?? '');
-        if ($username === '' || $password === '') {
+        if ($username === '' || strlen($username) > 40 || $password === '' || strlen($password) > 200 || strpos($password, "\0") !== false) {
             app_json(['ok' => false, 'message' => 'Nama pengguna dan kata sandi wajib diisi.'], 422);
         }
         $query = $pdo->prepare('SELECT id, username, display_name, password_hash, role FROM users WHERE LOWER(username) = LOWER(:username) LIMIT 1');
         $query->execute([':username' => $username]);
         $record = $query->fetch();
-        if (!$record || !password_verify($password, (string) $record['password_hash'])) {
+        // Key known accounts by DB ID, so collation/case aliases share one limit.
+        app_limit_login($pdo, $record ? 'id:' . $record['id'] : 'missing:' . strtolower($username));
+        // Also verify a dummy hash for unknown usernames to reduce timing enumeration.
+        $validPassword = password_verify($password, (string) ($record['password_hash'] ?? '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.'));
+        if (!$record || !$validPassword) {
             app_json(['ok' => false, 'message' => 'Nama pengguna atau kata sandi kurang tepat.'], 401);
         }
+        if ($record['role'] === 'admin' && password_verify('admin123', (string) $record['password_hash'])) {
+            app_json(['ok' => false, 'message' => 'Password admin bawaan dinonaktifkan. Pemilik hosting perlu mengisi admin_bootstrap_password (12–72 byte) di config.php, lalu login dengan password baru.'], 403);
+        }
         session_regenerate_id(true);
+        app_bind_auth_session((string) $record['password_hash']);
         $_SESSION['user_id'] = (int) $record['id'];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         app_json([
@@ -99,7 +111,7 @@ try {
         $download = (string) ($_GET['download'] ?? '') === '1';
         header('Content-Type: ' . ((string) $record['mime'] !== '' ? (string) $record['mime'] : 'image/jpeg'));
         header('Content-Length: ' . strlen($data));
-        header('Cache-Control: private, max-age=120, no-transform');
+        header('Cache-Control: no-store, private, no-transform');
         header('X-Content-Type-Options: nosniff');
         header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="bukti-' . $id . '.jpg"');
         echo $data;
@@ -1134,8 +1146,8 @@ try {
     if ($action === 'password/change' && $method === 'POST') {
         $current = (string) ($input['current_password'] ?? '');
         $new = (string) ($input['new_password'] ?? '');
-        if (strlen($new) < 8 || strlen($new) > 200) {
-            app_json(['ok' => false, 'message' => 'Kata sandi baru minimal 8 karakter.'], 422);
+        if (!app_valid_new_password($new)) {
+            app_json(['ok' => false, 'message' => 'Kata sandi baru harus 12–72 byte (huruf ASCII: 12–72 karakter).'], 422);
         }
         $query = $pdo->prepare('SELECT password_hash FROM users WHERE id = :id');
         $query->execute([':id' => $user['id']]);
@@ -1144,7 +1156,10 @@ try {
             app_json(['ok' => false, 'message' => 'Kata sandi lama tidak sesuai.'], 422);
         }
         $update = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
-        $update->execute([':hash' => password_hash($new, PASSWORD_DEFAULT), ':id' => $user['id']]);
+        $newHash = password_hash($new, PASSWORD_DEFAULT);
+        $update->execute([':hash' => $newHash, ':id' => $user['id']]);
+        session_regenerate_id(true);
+        app_bind_auth_session($newHash);
         app_json(['ok' => true, 'message' => 'Kata sandi berhasil diganti.']);
     }
 
@@ -1163,8 +1178,8 @@ try {
         $password = (string) ($input['password'] ?? '');
         $phoneRaw = trim((string) ($input['phone'] ?? ''));
         $phone = $phoneRaw !== '' ? app_normalize_whatsapp_target($phoneRaw) : null;
-        if (!preg_match('/^[A-Za-z0-9._-]{3,32}$/', $username) || $name === '' || strlen($name) > 80 || strlen($password) < 8 || strlen($password) > 200) {
-            app_json(['ok' => false, 'message' => 'Username 3–32 karakter, nama wajib diisi, dan password minimal 8 karakter.'], 422);
+        if (!preg_match('/^[A-Za-z0-9._-]{3,32}$/', $username) || $name === '' || strlen($name) > 80 || !app_valid_new_password($password)) {
+            app_json(['ok' => false, 'message' => 'Username 3–32 karakter, nama wajib diisi, dan password 12–72 byte.'], 422);
         }
         if ($phoneRaw !== '' && $phone === null) {
             app_json(['ok' => false, 'message' => 'Nomor HP tidak valid. Contoh: 08123456789'], 422);
@@ -1187,8 +1202,8 @@ try {
         app_require_admin($user);
         $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
         $password = (string) ($input['password'] ?? '');
-        if (!$id || $id < 1 || $id === $user['id'] || strlen($password) < 8 || strlen($password) > 200) {
-            app_json(['ok' => false, 'message' => 'Pilih anggota dan kata sandi baru (minimal 8 karakter).'], 422);
+        if (!$id || $id < 1 || $id === $user['id'] || !app_valid_new_password($password)) {
+            app_json(['ok' => false, 'message' => 'Pilih anggota dan kata sandi baru (12–72 byte).'], 422);
         }
         $query = $pdo->prepare("SELECT id FROM users WHERE id = :id AND role = 'member'");
         $query->execute([':id' => $id]);

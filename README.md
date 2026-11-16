@@ -170,24 +170,23 @@ Pilih satu kategori (misalnya Bensin) atau semua kategori, lalu saring uang masu
 
 ## Login awal
 
-Pada database yang baru dibuat, akun admin otomatis disiapkan:
+Tidak ada password admin bawaan lagi. Sebelum membuka instalasi baru, isi `admin_bootstrap_password` di **config.php milik hosting** dengan password unik 12–72 byte (untuk huruf ASCII sama dengan 12–72 karakter). Akun awal memakai username **ALDI**. Login dengan password yang kamu pilih, lalu hapus nilai bootstrap dari config.php; hash password tetap tersimpan di database.
 
-- **Username:** `ALDI`
-- **Password:** `admin123`
+**Penting untuk upgrade:** jika admin lama masih memakai password bawaan, login itu sekarang ditolak. Isi `admin_bootstrap_password` seperti di atas, muat ulang, lalu login dengan password baru. Password admin yang sudah pernah dikustomisasi **tidak** ditimpa oleh bootstrap. Jika lupa password khusus tersebut, pemulihan memerlukan akses database/hosting; jangan membuka endpoint reset tanpa autentikasi.
 
-Segera ganti kata sandi ini di **Pengaturan → Keamanan akun** setelah login, terutama sebelum situs dibuka untuk pengguna lain.
+Semua sesi sebelum update keamanan harus login ulang. Setelah ganti/reset password, sesi akun tersebut di perangkat lain menjadi tidak valid. Sesi berhenti setelah 30 menit tidak aktif atau maksimal 12 jam. Login dibatasi per akun dan alamat IP dalam jendela 15 menit. Lihat **SECURITY-AUDIT.md** untuk hasil audit dan checklist pemasangan.
 
 ## Coba di komputer lokal
 
-Perlu Node.js 22 atau lebih baru. PHP 8.2 WebAssembly digunakan hanya untuk menjalankan preview lokal; situs yang diunggah ke hosting tetap berjalan sebagai PHP biasa.
+Siapkan `config.php` lokal berisi `admin_bootstrap_password` unik (DSN boleh dikosongkan untuk SQLite). Jangan memakai password produksi pada preview publik. Perlu Node.js 22 atau lebih baru. PHP 8.2 WebAssembly digunakan hanya untuk menjalankan preview lokal; situs yang diunggah ke hosting tetap berjalan sebagai PHP biasa.
 
 ## Pasang di InfinityFree / shared hosting PHP
 
 Tidak perlu Node.js di server hosting. Aplikasi menggunakan PHP 8.1+ dan **PDO MySQL**; folder `storage/` juga memiliki proteksi `.htaccess` untuk instalasi lokal SQLite.
 
 1. Buat database MySQL dari panel hosting. Catat host, nama database, username, dan password database dari panel tersebut.
-2. Salin `config.example.php` menjadi `config.php`. Isi `dsn`, `db_user`, dan `db_password` sesuai detail hosting. Contoh DSN tersedia di dalam file; gunakan nilai host yang benar dari panel akunmu. Set `timezone` ke `Asia/Jakarta`.
-3. Unggah isi repository ke folder web hosting (umumnya `htdocs` atau `public_html`), termasuk `.htaccess`, folder `assets/`, `includes/`, `storage/`, dan `database/`. Jangan unggah `node_modules/` atau `storage/rumahku.sqlite` dari komputer lokal.
+2. Salin `config.example.php` menjadi `config.php`. Isi `dsn`, `db_user`, dan `db_password` sesuai detail hosting. Contoh DSN tersedia di dalam file; gunakan nilai host yang benar dari panel akunmu. Set `timezone` ke `Asia/Jakarta`. Untuk instalasi baru/admin dengan password bawaan lama, isi juga `admin_bootstrap_password` dengan password unik 12–72 byte.
+3. Unggah isi repository ke folder web hosting (umumnya `htdocs` atau `public_html`), termasuk `.htaccess`, folder `assets/`, `includes/`, `storage/`, dan `database/`. Jangan unggah `.git/`, `node_modules/`, backup SQL/ZIP, file rahasia lokal, atau `storage/rumahku.sqlite` dari komputer lokal.
 4. Buka domain. Tabel database dan akun admin awal dibuat otomatis saat pertama kali aplikasi dijalankan. Kalau lebih suka membuat tabelnya sendiri lebih dulu, impor `database/schema-mysql.sql` lewat phpMyAdmin, atau `database/upgrade-mysql.sql` untuk database yang sudah ada. Jika hosting tidak mengaktifkan ekstensi PDO MySQL, GD, atau memblokir pembuatan tabel, minta hosting mengaktifkannya.
 5. Login, lalu langsung ganti kata sandi admin. Dari menu **Anggota rumah**, admin dapat membuat akun tambahan.
 6. Cek **Pengaturan → Backup & database** untuk memastikan jumlah barisnya sudah sesuai, lalu unduh backup pertama sebagai salinan.
@@ -453,3 +452,12 @@ Konfigurasi hanya bisa dikelola admin. OAuth memakai state sekali pakai (10 meni
 Tidak memerlukan perubahan skema database: memakai tabel `app_settings` yang sudah ada. File runtime baru `includes/google-calendar.php` wajib ikut diunggah. Jika memperoleh `redirect_uri_mismatch`, samakan callback di Google Cloud dan Pengaturan, termasuk HTTPS dan query string. Jika `invalid_grant`, hubungkan ulang akun. Jika HTTP 403, periksa Calendar API, consent, dan izin akun.
 
 Tes lokal: `node scripts/test-google-calendar.mjs` (PHP melalui WASM) dan `node scripts/test-calendar.mjs`. Tes OAuth dengan akun nyata dan notifikasi HP memerlukan deployment HTTPS serta kredensial Google milik admin; tes lokal tidak menggantikannya.
+
+
+## Tindak lanjut laporan tim keamanan (headers, TLS, security.txt)
+
+Lihat **SECURITY-REMEDIATION.md** untuk pemetaan nomor temuan laporan eksternal, langkah pemasangan, dan retest. Perubahan terbaru mencakup HSTS khusus HTTPS (awalnya 1 hari), header COOP/CORP/COEP produksi, header pada semua entry point PHP, lampiran no-store, dan pembatasan metode API.
+
+`/.well-known/security.txt` disediakan melalui rewrite ke `security-contact.php`. Isi `security_contact` (mailto atau URL HTTPS kontak pelaporan yang kamu kuasai) dan `security_contact_expires` (UTC masa depan, maksimal sekitar satu tahun) di config.php agar aktif. Kontak akan menjadi publik; jika belum valid, endpoint sengaja mengembalikan 503, bukan alamat contoh. Pastikan mod_rewrite berfungsi. Opsi tersedia pada config.example.php; jangan menimpa config.php hosting.
+
+HSTS bukan perbaikan sertifikat: verifikasi HTTPS/redirect dan domain melalui hosting sebelum menaikkan `hsts_max_age` dari 86400 ke 31536000. Tidak ada perubahan DNS/WAF/sertifikat otomatis. Patch ini belum diuji di domain produksi dan tidak menjamin skor scanner tertentu.

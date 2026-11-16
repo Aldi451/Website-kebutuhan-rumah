@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/app.php';
+app_allow_methods(['GET', 'HEAD']);
 app_start_session();
 try {
     app_db();
@@ -28,13 +29,13 @@ try {
     <title>Masuk — Catatan keuangan rumah</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand.svg">
     <link rel="stylesheet" href="/assets/style.css?v=14">
-    <script>
+    <script nonce="<?= htmlspecialchars(app_csp_nonce(), ENT_QUOTES, 'UTF-8') ?>">
         window.APP_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
-    <script defer src="/assets/importer.js?v=2"></script>
+    <script defer src="/assets/importer.js?v=3"></script>
     <script defer src="/assets/clipboard-import.js?v=2"></script>
     <script defer src="/assets/calendar.js?v=2"></script>
-    <script defer src="/assets/app.js?v=21"></script>
+    <script defer src="/assets/app.js?v=22"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">

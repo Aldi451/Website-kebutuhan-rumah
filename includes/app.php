@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 date_default_timezone_set('Asia/Jakarta');
+require_once __DIR__ . '/security.php';
 
 function app_config(): array
 {
@@ -20,6 +21,10 @@ function app_config(): array
         'fonnte_target' => '',
         'telegram_backup_secret' => '',
         'cron_secret' => '',
+        'admin_bootstrap_password' => '',
+        'hsts_max_age' => 86400,
+        'security_contact' => '',
+        'security_contact_expires' => '',
     ];
 
     $configFile = dirname(__DIR__) . '/config.php';
@@ -50,7 +55,7 @@ function app_start_session(): void
     ini_set('session.use_only_cookies', '1');
     ini_set('session.cookie_httponly', '1');
     ini_set('session.cookie_samesite', 'Lax');
-    $isSecure = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+    $isSecure = app_request_is_https();
     session_name('rumahku_session');
     session_set_cookie_params([
         'lifetime' => 0,
@@ -248,17 +253,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
     app_ensure_column($pdo, $mysql, 'reminders', 'has_time', $mysql ? 'TINYINT(1) NOT NULL DEFAULT 1' : 'INTEGER NOT NULL DEFAULT 1');
     app_ensure_column($pdo, $mysql, 'users', 'phone', "VARCHAR(60) NOT NULL DEFAULT ''");
 
-    $adminCount = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
-    if ($adminCount === 0) {
-        $insert = $pdo->prepare('INSERT INTO users (username, display_name, password_hash, role, created_at) VALUES (:username, :name, :hash, :role, :created)');
-        $insert->execute([
-            ':username' => 'ALDI',
-            ':name' => 'Aldi',
-            ':hash' => password_hash('admin123', PASSWORD_DEFAULT),
-            ':role' => 'admin',
-            ':created' => date('Y-m-d H:i:s'),
-        ]);
-    }
+    app_bootstrap_admin($pdo);
 }
 
 function app_user(): ?array
@@ -266,13 +261,15 @@ function app_user(): ?array
     if (empty($_SESSION['user_id'])) {
         return null;
     }
-    $query = app_db()->prepare('SELECT id, username, display_name, role, phone, created_at FROM users WHERE id = :id LIMIT 1');
+    $query = app_db()->prepare('SELECT id, username, display_name, role, phone, created_at, password_hash FROM users WHERE id = :id LIMIT 1');
     $query->execute([':id' => (int) $_SESSION['user_id']]);
     $user = $query->fetch();
-    if (!$user) {
-        unset($_SESSION['user_id']);
+    if (!$user || !app_auth_session_valid($user, time())) {
+        unset($_SESSION['user_id'], $_SESSION['auth_fingerprint'], $_SESSION['auth_started_at'], $_SESSION['auth_last_seen'], $_SESSION['google_oauth']);
         return null;
     }
+    $_SESSION['auth_last_seen'] = time();
+    unset($user['password_hash']);
     $user['id'] = (int) $user['id'];
     return $user;
 }
@@ -1226,3 +1223,6 @@ function app_name_initials(string $name): string
 }
 
 require_once __DIR__ . '/wa.php';
+
+// Cover every public PHP entry point, including webhooks, cron and error responses.
+app_security_headers();

@@ -12,8 +12,8 @@ const databasePath = path.join(root, 'storage', 'rumahku.sqlite');
 // Upload bukti berupa gambar terkompres dikirim sebagai JSON+base64, jadi badan permintaan boleh lebih besar.
 const maxRequestBody = 12 * 1024 * 1024;
 const filesToServe = [
-  'index.php', 'api.php', 'cron.php', 'whatsapp.php', 'telegram-backup.php', '.htaccess', 'config.php',
-  'includes/google-calendar.php', 'assets/calendar.js', 'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/clipboard-import.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
+  'security-contact.php', 'index.php', 'api.php', 'cron.php', 'whatsapp.php', 'telegram-backup.php', '.htaccess', 'config.php',
+  'includes/security.php', 'includes/google-calendar.php', 'assets/calendar.js', 'includes/app.php', 'includes/wa.php', 'assets/app.js', 'assets/importer.js', 'assets/clipboard-import.js', 'assets/style.css', 'assets/brand.svg', 'storage/.htaccess',
 ];
 
 console.log('Menyiapkan PHP 8.2 untuk preview lokal…');
@@ -72,13 +72,17 @@ const server = http.createServer((request, response) => {
         response.end('Invalid request path.');
         return;
       }
-      const blockedPath = ['/storage', '/includes', '/config.php', '/.git'].some((prefix) => decodedPath === prefix || decodedPath.startsWith(`${prefix}/`));
+      const normalizedPath = path.posix.normalize(decodedPath.replaceAll('\\', '/'));
+      const blockedPath = ['/storage', '/includes', '/config.php', '/.git', '/update', '/database', '/cloudflare-backup'].some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))
+        || /(?:^|\/)\.(?!well-known(?:\/|$))/.test(normalizedPath)
+        || /(?:^|\/)config(?:\..*)?$|\.(?:sql|sqlite3?|db|bak|old|orig|save|log|zip)(?:[-.].*)?$|~$/i.test(normalizedPath);
       if (blockedPath) {
         response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         response.end('Not found.');
         return;
       }
-      const targetUrl = `${parsedUrl.pathname === '/' ? '/index.php' : parsedUrl.pathname}${parsedUrl.search}`;
+      const routedPath = normalizedPath === '/.well-known/security.txt' ? '/security-contact.php' : parsedUrl.pathname === '/' ? '/index.php' : parsedUrl.pathname;
+      const targetUrl = `${routedPath}${parsedUrl.search}`;
       const headers = {};
       for (const [name, value] of Object.entries(request.headers)) {
         if (value === undefined || name === 'host' || name === 'connection' || name === 'content-length') continue;

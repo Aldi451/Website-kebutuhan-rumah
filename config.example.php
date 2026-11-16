@@ -14,6 +14,24 @@ return [
     'db_user' => 'if0_12345678',
     'db_password' => 'GANTI_DENGAN_PASSWORD_DATABASE',
 
+    // Wajib pada instalasi baru, atau untuk mengganti password admin bawaan lama.
+    // Isi password UNIK 12–72 byte di config.php (jangan di file contoh/repository).
+    // Setelah berhasil login, hapus nilai ini; password tersimpan sebagai hash di database.
+    // Tidak akan mengganti password akun yang sebelumnya sudah dikustomisasi.
+    'admin_bootstrap_password' => '',
+
+    // HSTS hanya dikirim pada HTTPS asli. Awali 1 hari; naikkan ke 31536000
+    // setelah SSL dan redirect HTTPS hosting terverifikasi. 0 untuk mencabut HSTS.
+    // Tidak mengaktifkan includeSubDomains/preload. Jangan percaya header proxy publik.
+    'hsts_max_age' => 86400,
+
+    // Kontak keamanan PUBLIK untuk /.well-known/security.txt (RFC 9116).
+    // mailto:alamat-yang-kamu-pantau atau URL HTTPS formulir pelaporan milikmu.
+    // Wajib isi keduanya: kontak nyata dan expiry UTC masa depan (maksimal 1 tahun).
+    // Jika kosong/invalid/kedaluwarsa, endpoint mengembalikan 503, bukan kontak palsu.
+    'security_contact' => '',
+    'security_contact_expires' => '',
+
     // Zona waktu untuk tanggal transaksi dan reminder.
     'timezone' => 'Asia/Jakarta',
 

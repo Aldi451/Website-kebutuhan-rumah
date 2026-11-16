@@ -106,5 +106,5 @@ CREATE TABLE IF NOT EXISTS wa_contacts (
 
 -- Akun admin awal tidak ditulis di sini dengan sengaja.
 -- Saat tabel "users" masih kosong, aplikasi otomatis membuat akun:
---   Username: ALDI · Password: admin123  (ganti segera setelah login).
+--   Username: ALDI. Password diambil dari admin_bootstrap_password di config.php (12–72 byte).
 -- Password disimpan sebagai hash, jadi tidak bisa ditulis manual di file SQL.
