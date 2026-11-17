@@ -870,21 +870,19 @@ try {
             throw $error;
         }
         $googleCalendar = app_gc_create($reminderId);
-        $whatsapp = app_send_whatsapp_broadcast(app_reminder_message([
-            'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
-            'note' => $note, 'created_by_name' => $user['display_name'],
-        ]) . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''));
-        // Hormati pengaturan jenis notifikasi
         $notifyTypes = app_wa_notify_settings()['types'] ?? ['reminders'];
-        if (!in_array('reminders', $notifyTypes, true)) {
-            $whatsapp = ['ok' => true, 'description' => 'Notifikasi pengingat dimatikan di pengaturan.'];
-        }
+        $whatsapp = in_array('reminders', $notifyTypes, true)
+            ? app_send_whatsapp_broadcast(app_reminder_message([
+                'title' => $title, 'category' => $category, 'reminder_at' => $reminderAt, 'has_time' => $hasTime,
+                'note' => $note, 'created_by_name' => $user['display_name'],
+            ]) . ($receipt !== null ? "\n\nBukti gambar tersimpan di website." : ''))
+            : ['ok' => false, 'description' => 'Notifikasi pengingat dimatikan di pengaturan.'];
         app_json([
             'ok' => true,
             'message' => trim(($receipt === null ? 'Pengingat berhasil disimpan.' : 'Pengingat dan bukti gambarnya berhasil disimpan.')
                 . (empty($googleCalendar['skipped']) ? ' ' . $googleCalendar['message'] : '')
                 . ($hasTime === 0 ? ' Tanpa jam khusus, kabarnya dikirim sekitar ' . app_default_reminder_time() . '.' : '')
-                . (($whatsapp['ok'] ?? false) ? ' (' . (string) ($whatsapp['description'] ?? '') . ')' : '')),
+                . ' (' . (string) ($whatsapp['description'] ?? '') . ')'),
             'whatsapp_sent' => (bool) ($whatsapp['ok'] ?? false),
             'whatsapp_message' => (string) ($whatsapp['description'] ?? ''),
             'whatsapp_sent_count' => (int) ($whatsapp['sent'] ?? 0),
@@ -1040,7 +1038,9 @@ try {
         if (!$reminder) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
         }
+        app_notification_reject_if_limited(app_notification_budget('whatsapp', 'reminder:' . $id));
         $result = app_send_whatsapp_broadcast(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
+        app_notification_reject_if_limited($result);
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -1070,6 +1070,7 @@ try {
             'created_by_name' => (string) $user['display_name'],
         ];
         $result = app_send_whatsapp_broadcast(app_reminder_message($sample, '🧪 Tes kirim pengingat'));
+        app_notification_reject_if_limited($result);
         if (!($result['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -1390,6 +1391,7 @@ try {
     if ($action === 'whatsapp/test' && $method === 'POST') {
         app_require_admin($user);
         $test = app_send_whatsapp("✅ Pesan percobaan notifikasi pengingat rumah.\nPerangkat Fonnte dan nomor tujuan sudah terhubung.");
+        app_notification_reject_if_limited($test);
         if (!($test['ok'] ?? false)) {
             app_json(['ok' => false, 'message' => (string) ($test['description'] ?? 'Pesan tidak dapat dikirim.')], 422);
         }
@@ -1517,6 +1519,7 @@ try {
         $text = trim((string) ($input['message'] ?? ''));
         if ($text === '') $text = '🧪 Tes notifikasi multi-perangkat: jika kamu menerima ini, pengaturan penerima notifikasi sudah benar.';
         $result = app_send_whatsapp_broadcast($text);
+        app_notification_reject_if_limited($result);
         if (!($result['ok'] ?? false)) app_json(['ok' => false, 'message' => (string) ($result['description'] ?? 'Gagal mengirim')], 422);
         app_json(['ok' => true, 'message' => (string) $result['description'], 'sent' => (int) ($result['sent'] ?? 0), 'failed' => (int) ($result['failed'] ?? 0)]);
     }

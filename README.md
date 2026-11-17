@@ -375,7 +375,7 @@ Pastikan tugas terjadwal berjalan setiap 5–15 menit dan `cron_secret` di `conf
 - Pesan dari perangkat bot sendiri dan kiriman webhook ganda diabaikan supaya tidak terjadi balasan berulang.
 - Setiap balasan memakai kuota Fonnte. Pertanyaan panjang atau berulang tetap memotong kuota, jadi arahkan anggota memakai contoh perintah di atas.
 - Fitur bot tidak bisa diuji di preview `npm start` karena PHP WebAssembly tidak punya akses internet. Gunakan hosting untuk mencoba.
-- Untuk memeriksa isi jawaban tanpa membuka WhatsApp, admin bisa membuka `whatsapp.php?key=...&debug=1` lewat POST dari alat uji; parameter `debug=1` hanya menambah teks jawaban pada respons.
+- Respons webhook tidak mengembalikan isi laporan, termasuk jika memakai `debug=1`. Periksa jawaban di WhatsApp nomor terdaftar atau lihat laporan melalui dashboard setelah login. Secret webhook bukan pengganti sesi admin.
 
 ### Troubleshooting bot WhatsApp
 
@@ -461,3 +461,42 @@ Lihat **SECURITY-REMEDIATION.md** untuk pemetaan nomor temuan laporan eksternal,
 `/.well-known/security.txt` disediakan melalui rewrite ke `security-contact.php`. Isi `security_contact` (mailto atau URL HTTPS kontak pelaporan yang kamu kuasai) dan `security_contact_expires` (UTC masa depan, maksimal sekitar satu tahun) di config.php agar aktif. Kontak akan menjadi publik; jika belum valid, endpoint sengaja mengembalikan 503, bukan alamat contoh. Pastikan mod_rewrite berfungsi. Opsi tersedia pada config.example.php; jangan menimpa config.php hosting.
 
 HSTS bukan perbaikan sertifikat: verifikasi HTTPS/redirect dan domain melalui hosting sebelum menaikkan `hsts_max_age` dari 86400 ke 31536000. Tidak ada perubahan DNS/WAF/sertifikat otomatis. Patch ini belum diuji di domain produksi dan tidak menjamin skor scanner tertentu.
+
+
+## Pembatas notifikasi (penguatan tahap 1)
+
+Pengiriman WhatsApp melewati pembatas terpusat sebelum menghubungi Fonnte, termasuk tes koneksi, broadcast, notifikasi transaksi/reminder baru, bot, dan cron. Pembuatan agenda Google memiliki kuota terpisah sebelum refresh token/panggilan Calendar API.
+
+- **30 percobaan per pengguna per 15 menit per layanan**. Proses tanpa sesi login (cron/bot) memakai satu kuota `system` dengan batas sama.
+- **100 percobaan total satu rumah per 15 menit per layanan**. Satu tujuan WhatsApp dihitung satu percobaan: broadcast ke 5 nomor memakai hingga 5 slot. Google menghitung satu percobaan membuat agenda (termasuk proses refresh token), bukan setiap HTTP request.
+- **Cooldown 60 detik per reminder per layanan** untuk tombol kirim manual WhatsApp/Google, dibagi antaranggota. Gagal mengirim tetap memakai cooldown; mengganti akun tidak melewatinya.
+- Percobaan gagal juga dihitung. Counter disimpan di tabel `security_notification_limits`, bukan cookie, sehingga login ulang tidak menghapus batas. Tabel dibuat otomatis. Hosting memerlukan izin CREATE/INSERT/UPDATE/DELETE; kegagalan penyimpanan kuota menahan pengiriman, bukan melewatkan pembatas.
+- Counter menggunakan jendela tetap sejak slot pertama. Reservasi beberapa scope bersifat konservatif: penolakan kuota rumah dapat tetap memakai slot pengguna. Ini bukan sliding-window atau perlindungan DDoS menyeluruh.
+- Jika batas tercapai saat membuat reminder, data website tetap disimpan dan respons menjelaskan bahwa notifikasi tidak terkirim. Kirim ulang setelah masa tunggu melalui tombol manual. Tidak ada antrean retry baru. Broadcast yang hanya berhasil sebagian menyebut jumlah gagal; retry dapat mengirim lagi ke penerima yang sudah menerima. Cron lama dapat menganggap pengiriman parsial selesai, jadi periksa hasil jika ada banyak penerima.
+- Endpoint reminder/manual Google dan tombol tes utama mengembalikan HTTP 429 + Retry-After saat dibatasi; operasi yang sekaligus menyimpan data tetap melaporkan keberhasilan penyimpanan dengan kegagalan notifikasi. Jalur laporan/bot dapat memakai format respons kegagalan yang sudah ada, tetapi tetap tidak memanggil penyedia setelah kuota habis.
+- Jenis notifikasi reminder yang dinonaktifkan diperiksa **sebelum** pengiriman otomatis, bukan sesudah. Tombol manual tetap permintaan eksplisit pengguna.
+
+Uji: `node scripts/test-notification-limits.mjs`. Tes menggunakan SQLite/PHP-WASM dan token fixture tanpa mengirim pesan nyata. Konkurensi MySQL serta pengiriman produksi tetap perlu retest di hosting. Nilai batas di atas ditetapkan dalam kode, belum ada menu konfigurasi kuota.
+
+**Belum termasuk 2FA admin dan enkripsi token at-rest.** Token masih berada di database/backup; lindungi backup dan akses admin. Dua penguatan tersebut memerlukan tahap terpisah beserta pemulihan akun/kunci.
+
+
+## Penguatan webhook dan pemeriksaan hak akses
+
+- `whatsapp.php` tidak lagi mengembalikan `reply_text`, meskipun pemanggil memiliki secret webhook dan menambahkan `debug=1`. Sebelumnya kombinasi secret yang bocor dan nomor admin bot yang diketahui dapat membuka isi laporan melalui HTTP tanpa sesi dashboard. Ini direproduksi dengan data fixture lokal, bukan pada hosting produksi.
+- Secret webhook hanya dibaca dari konfigurasi yang sudah dibuat lewat Pengaturan; akses anonim tidak membuat secret baru. Kegagalan membaca konfigurasi memberikan respons generik 503.
+- Body webhook maksimal **64 KiB**, tipe dan panjang field penting divalidasi sebelum diproses. Metode yang didukung GET (pemeriksaan endpoint) dan POST (pesan masuk); yang lain ditolak. Batas ini untuk payload teks/metadata, bukan file media inline.
+- Respons `replied` kini mengikuti hasil pengiriman sebenarnya, termasuk ketika layanan tidak terhubung atau kuota dibatasi. Cron juga tidak lagi menampilkan detail exception walaupun diberi `debug=1`; detail kegagalan tetap di log server.
+- **Secret tetap rahasia:** pengirim dengan secret masih dapat memalsukan metadata webhook dan memicu bot ke kontak terdaftar. Patch ini mengurangi kebocoran lewat respons HTTP, tidak membuktikan identitas pengirim tanpa signature vendor. Jika pernah membagikan URL webhook, ganti kunci di Pengaturan lalu perbarui URL pada Fonnte. Pakai header `X-Webhook-Key` bila layanan pengirim mendukungnya; batasi akses log yang mungkin memuat query URL.
+- Tes hak akses memastikan anggota tidak bisa edit/hapus transaksi dan reminder milik akun lain, mengganti/menghapus lampiran milik akun lain, mengirim Google untuk catatan orang lain, atau mereset password admin. `user_id` yang dipalsukan pada pembuatan transaksi diabaikan oleh server. Membaca data rumah bersama dan menandai reminder bersama tetap perilaku kolaboratif yang disengaja, bukan isolasi antar-tenant.
+
+Tes: `node scripts/test-webhook-security.mjs` dan `node scripts/test-security.mjs`. Tidak mengirim pesan nyata dan tidak mengubah data produksi. Integrasi Fonnte nyata, batas payload provider, dan MySQL tetap perlu retest di hosting.
+
+
+## Penguatan upload bukti dan format backup SQL
+
+Gambar bukti dibatasi **8 megapiksel** sebelum decoding (sebelumnya 40 megapiksel). Batas byte terkompresi tetap 1.600.000 byte. Saat GD tersedia, aplikasi memperkirakan kebutuhan memori gambar/canvas dan menyisakan margin sebelum membuka gambar; gambar ditolak jika melampaui sisa `memory_limit`. File dengan decoder GD gagal tidak lagi diterima mentah. Jika muncul penolakan, kecilkan resolusi terlebih dahulu; browser biasanya sudah mengecilkan foto sebelum upload. Pemeriksaan ini mengurangi risiko kehabisan memori, bukan menjamin semua format/decoder bebas masalah. Jika GD tidak tersedia, pengecekan format/dimensi tetap berjalan tetapi tidak ada penulisan ulang atau penghapusan metadata di server.
+
+Backup MySQL/MariaDB kini menulis teks sebagai `CONVERT(X'…' USING utf8mb4)`, bukan menggabungkan penggandaan backslash manual dengan `PDO::quote`. Tujuannya menjaga karakter backslash, kutip, Unicode, dan byte kontrol tanpa bergantung pada driver sumber atau mode backslash MySQL. **Hex adalah encoding reversibel, bukan enkripsi.** Secret dan hash password tetap dapat dipulihkan dari backup; jaga backup tetap privat. File SQL bisa lebih besar (hex kira-kira dua kali ukuran byte teks), sehingga periksa kuota/limit backup otomatis.
+
+Format tetap untuk impor MySQL/MariaDB, bukan SQL SQLite langsung. Lakukan uji restore di database staging kosong sebelum bergantung pada backup baru. Tes `node scripts/test-backup-upload.mjs` memeriksa pemulihan byte literal, isi dump, PNG terkompresi kecil dengan 10 juta piksel yang ditolak sebelum decoding, kalkulasi anggaran memori, PNG kecil valid, penolakan SVG, dan batas ukuran byte. Tes lokal tidak menjalankan restore MySQL atau menguji penggunaan memori GD di InfinityFree.

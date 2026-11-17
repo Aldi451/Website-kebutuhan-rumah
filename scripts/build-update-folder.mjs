@@ -15,6 +15,8 @@ const files = [
   ['includes/wa.php', 'website/includes/wa.php'],
   ['includes/security.php', 'website/includes/security.php'],
   ['api.php', 'website/api.php'],
+  ['whatsapp.php', 'website/whatsapp.php'],
+  ['cron.php', 'website/cron.php'],
   ['includes/google-calendar.php', 'website/includes/google-calendar.php'],
   ['assets/app.js', 'website/assets/app.js'],
   ['assets/importer.js', 'website/assets/importer.js'],

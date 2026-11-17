@@ -573,6 +573,8 @@ function app_send_whatsapp(string $text, ?string $target = null, ?string $token 
     if ($token === '' || $target === '') {
         return ['ok' => false, 'description' => 'Notifikasi WhatsApp (Fonnte) belum dihubungkan.', 'data' => []];
     }
+    $budget = app_notification_budget('whatsapp');
+    if (!$budget['ok']) return $budget;
     $payload = [
         'target' => $target,
         'message' => $text,
@@ -716,6 +718,29 @@ function app_receipt_max_side(): int
     return 1600;
 }
 
+/** Conservative pre-decode budget, not a replacement for PHP/server resource limits. */
+function app_receipt_memory_limit_bytes(string $value): int
+{
+    $value = trim($value);
+    if ($value === '-1') return -1;
+    if (!preg_match('/^(\d+)\s*([KMG]?)$/i', $value, $m)) return 0;
+    $factor = ['' => 1, 'K' => 1024, 'M' => 1048576, 'G' => 1073741824][strtoupper($m[2])];
+    return (int) $m[1] * $factor;
+}
+
+function app_validate_receipt_resources(int $width, int $height, int $encodedBytes, int $memoryLimit, int $memoryUsed): void
+{
+    if ($width < 1 || $height < 1 || $width > 12000 || $height > 12000 || $width * $height > 8_000_000) {
+        throw new RuntimeException('Dimensi gambar bukti terlalu besar (maksimal 8 megapiksel). Kompres atau kecilkan foto terlebih dahulu.');
+    }
+    $scale = min(1.0, app_receipt_max_side() / max($width, $height));
+    $canvasPixels = max(1, (int) round($width * $scale)) * max(1, (int) round($height * $scale));
+    $estimate = ($width * $height + $canvasPixels) * 8 + $encodedBytes * 2 + 16 * 1024 * 1024;
+    if ($memoryLimit !== -1 && ($memoryLimit <= 0 || $estimate > $memoryLimit - $memoryUsed)) {
+        throw new RuntimeException('Memori hosting tidak cukup untuk memproses gambar ini dengan aman. Kecilkan resolusi foto lalu coba lagi.');
+    }
+}
+
 /**
  * Membaca payload bukti dari input JSON. Mengembalikan null bila pengguna melewati
  * (skip) lampiran, dan melempar RuntimeException bila gambarnya tidak memenuhi syarat.
@@ -768,12 +793,14 @@ function app_prepare_receipt(string $bytes, string $fileName = ''): array
     if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
         throw new RuntimeException('Format bukti harus JPG, PNG, atau WEBP.');
     }
-    if ($width < 1 || $height < 1 || $width > 12_000 || $height > 12_000 || ($width * $height) > 40_000_000) {
-        throw new RuntimeException('Dimensi gambar bukti tidak wajar. Pilih foto lain.');
-    }
+    // Check dimensions for every server, including installations without GD.
+    app_validate_receipt_resources($width, $height, strlen($bytes), -1, 0);
 
     if (function_exists('imagecreatefromstring') && function_exists('imagejpeg') && function_exists('imagecreatetruecolor')) {
+        // A tiny compressed image can still decode to a huge pixel allocation.
+        app_validate_receipt_resources($width, $height, strlen($bytes), app_receipt_memory_limit_bytes((string) ini_get('memory_limit')), memory_get_usage(true));
         $image = @imagecreatefromstring($bytes);
+        if ($image === false) throw new RuntimeException('Isi gambar rusak atau formatnya tidak didukung decoder hosting.');
         if ($image !== false) {
             $maxSide = app_receipt_max_side();
             $scale = min(1.0, $maxSide / max($width, $height));
@@ -781,6 +808,10 @@ function app_prepare_receipt(string $bytes, string $fileName = ''): array
                 $targetWidth = max(1, (int) round($width * $scale));
                 $targetHeight = max(1, (int) round($height * $scale));
                 $canvas = imagecreatetruecolor($targetWidth, $targetHeight);
+                if ($canvas === false) {
+                    imagedestroy($image);
+                    throw new RuntimeException('Gambar belum dapat diproses. Kecilkan resolusi foto.');
+                }
                 imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
                 imagecopyresampled($canvas, $image, 0, 0, 0, 0, $targetWidth, $targetHeight, imagesx($image), imagesy($image));
                 imagedestroy($image);
@@ -961,6 +992,12 @@ function app_database_summary(): array
     return $summary;
 }
 
+/** MySQL text literal independent of PDO driver and backslash SQL mode. */
+function app_mysql_dump_text(string $text): string
+{
+    return "CONVERT(X'" . bin2hex($text) . "' USING utf8mb4)";
+}
+
 /**
  * Menulis file .sql berisi struktur tabel + isi database.
  * Gambar bukti disertakan sebagai nilai hex selama totalnya masih wajar.
@@ -1023,7 +1060,10 @@ function app_stream_sql_dump(PDO $pdo): void
                         $values[] = $includeImages ? "X'" . bin2hex($text) . "'" : "''";
                         continue;
                     }
-                    $values[] = $pdo->quote(str_replace('\\', '\\\\', $text));
+                    // Hex text literals survive MySQL SQL modes and source PDO drivers
+                    // without double-escaping backslashes or embedding user SQL text.
+                    // This is reversible encoding, NOT encryption of backup secrets.
+                    $values[] = app_mysql_dump_text($text);
                 }
                 echo 'INSERT INTO `' . $table . '` (' . $columnList . ') VALUES (' . implode(', ', $values) . ");\n";
                 $written++;
@@ -1184,8 +1224,10 @@ function app_wa_send_to_targets(string $text, array $targets, ?string $token = n
     $results = [];
     $sent = 0; $failed = 0;
     $descriptions = [];
+    $limited = null;
     foreach ($targets as $target) {
         $res = app_send_whatsapp($text, $target, $token);
+        if (!empty($res['rate_limited'])) $limited = $res;
         $results[] = ['target' => $target, 'ok' => (bool) ($res['ok'] ?? false), 'description' => (string) ($res['description'] ?? '')];
         if ($res['ok'] ?? false) $sent++; else { $failed++; $descriptions[] = $target . ': ' . (string) ($res['description'] ?? 'gagal'); }
     }
@@ -1193,6 +1235,8 @@ function app_wa_send_to_targets(string $text, array $targets, ?string $token = n
     return [
         'ok' => $overallOk,
         'sent' => $sent,
+        'rate_limited' => !$overallOk && $limited !== null,
+        'retry_after' => (int) ($limited['retry_after'] ?? 0),
         'failed' => $failed,
         'results' => $results,
         'description' => $overallOk
