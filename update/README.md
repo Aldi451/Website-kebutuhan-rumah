@@ -1,3 +1,11 @@
+# Perbaikan tanggal acuan laporan
+
+Tanggal acuan, jenis transaksi, kategori, dan parameter pembanding kini dikirim lengkap ke API. Sebelumnya helper URL memotong parameter setelah `period`, sehingga server memakai tanggal hari ini meskipun input tanggal sudah berubah. Respons laporan lama yang datang terlambat juga diabaikan bila filter sudah berubah.
+
+Jika seluruh update keamanan sebelumnya sudah terpasang, cukup timpa **`index.php`** dan **`assets/app.js`** dengan versi di `update/website/`, lalu Ctrl+F5. Tidak perlu mengubah database atau konfigurasi Google. ZIP tetap membawa paket runtime kumulatif; baca catatan keamanan di bawah jika memakai paket penuh.
+
+Uji: pilih 28 Februari 2026, pastikan label tanggal, Today/Yesterday, MTD/LMTD, YTD/LYTD, ringkasan, serta CSV mengacu ke tanggal itu. Uji filter kategori dan jenis transaksi juga. Tes otomatis: `node scripts/test-report.mjs` (frontend asli → PHP API dengan database fixture terisolasi).
+
 # Tambahan hasil laporan tim keamanan
 
 Paket sekarang juga membawa `security-contact.php`, rewrite `/.well-known/security.txt`, HSTS pada HTTPS, header COOP/CORP/COEP produksi, no-store untuk lampiran, dan header bersama untuk endpoint PHP. Baca **SECURITY-REMEDIATION.md** di repository sebelum deployment. Header baseline static/Apache memerlukan mod_headers; canonical security.txt memerlukan mod_rewrite.

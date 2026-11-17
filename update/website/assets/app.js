@@ -156,7 +156,11 @@
       options.headers['X-CSRF-Token'] = state.csrf;
       options.body = JSON.stringify(data || {});
     }
-    const [actionName, rawQuery = ''] = action.split('&', 2);
+    // split('&', 2) discards everything after the second segment, including
+    // report anchor_date/kind/category. Preserve the complete query suffix.
+    const queryStart = action.indexOf('&');
+    const actionName = queryStart === -1 ? action : action.slice(0, queryStart);
+    const rawQuery = queryStart === -1 ? '' : action.slice(queryStart + 1);
     const endpoint = `/api.php?action=${encodeURIComponent(actionName)}${rawQuery ? `&${rawQuery}` : ''}`;
     let response = await fetch(endpoint, options);
 
@@ -1511,6 +1515,8 @@
   async function refreshPage(showLoading = false) {
     const content = document.getElementById('page-content');
     if (!content || !state.user) return;
+    const requestedPage = state.page;
+    const requestedReportKey = requestedPage === 'report' ? reportRequestKey() : '';
     if (showLoading || !cacheReadyForPage()) content.innerHTML = loadingMarkup();
     try {
       if (state.page === 'dashboard') {
@@ -1518,9 +1524,12 @@
       } else if (state.page === 'finance') {
         state.finance = await api(`transactions&month=${encodeURIComponent(state.financeMonth)}`);
       } else if (state.page === 'report') {
-        const reportKey = reportRequestKey();
-        state.report = await api(`report&${reportKey}`);
-        state.reportKey = reportKey;
+        const report = await api(`report&${requestedReportKey}`);
+        // Ignore a late response after another date/filter was selected or the
+        // user navigated away, rather than mixing old totals with new controls.
+        if (state.page !== requestedPage || reportRequestKey() !== requestedReportKey) return;
+        state.report = report;
+        state.reportKey = requestedReportKey;
       } else if (state.page === 'reminders') {
         state.reminders = await api('reminders');
       } else if (state.page === 'members') {
@@ -1533,6 +1542,7 @@
       }
       renderPageContent();
     } catch (error) {
+      if (state.page !== requestedPage || (requestedPage === 'report' && reportRequestKey() !== requestedReportKey)) return;
       if (state.user) {
         content.innerHTML = `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> ada kendala</span><h1>${escapeHtml(pageTitle())}</h1><p>${escapeHtml(error.message)}</p></div><button class="btn btn-secondary" data-action="retry" type="button">Coba lagi</button></div>`;
       }
