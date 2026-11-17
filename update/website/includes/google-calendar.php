@@ -63,6 +63,8 @@ function app_gc_create(int $id): array
         if (!$r || $r['status'] !== 'pending') throw new RuntimeException('Hanya pengingat aktif yang dapat dikirim.');
         $tokens = app_gc_tokens();
         if (empty($tokens['refresh_token'])) throw new RuntimeException('Hubungkan akun Google terlebih dahulu di Pengaturan.');
+        $budget = app_notification_budget('google');
+        if (!$budget['ok']) return $budget;
         $access = app_gc_http('https://oauth2.googleapis.com/token', ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $c['client_id'], 'client_secret' => $c['client_secret']]);
         if (empty($access['access_token'])) throw new RuntimeException('Google tidak memberikan token akses. Hubungkan ulang akun.');
         // Stable, Google-compatible event ID makes retries safe after a timeout.
@@ -83,7 +85,9 @@ function app_gc_routes(string $action, string $method, array $input, array $user
     if ($action === 'google/send' && $method === 'POST') {
         $id = (int) ($input['id'] ?? 0);
         if (!app_can_manage_entity($user, app_entity_owner_id(app_db(), 'reminder', $id))) app_json(['ok' => false, 'message' => 'Tidak berhak mengirim pengingat ini.'], 403);
+        app_notification_reject_if_limited(app_notification_budget('google', 'reminder:' . $id));
         $result = app_gc_create($id);
+        app_notification_reject_if_limited($result);
         app_json($result, $result['ok'] ? 200 : 422);
     }
     app_require_admin($user);

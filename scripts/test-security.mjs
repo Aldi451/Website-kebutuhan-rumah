@@ -95,6 +95,25 @@ const member=browser(); await member.request('csrf');
 assert.equal((await member.request('login',{username:'testmember',password:'member-test-password'})).status,200);
 assert.equal((await member.request('google/save',{})).status,403);
 assert.equal((await member.request('backup/download')).status,403);
+// Shared reading is intentional; mutating another member/admin's data is not.
+await php.run({code:`<?php require '/www/includes/app.php';$pdo=app_db();$pdo->exec("INSERT INTO transactions (kind,title,category,amount,transaction_date,user_id,created_at) VALUES ('expense','Owner fixture','Rumah',100,'2026-11-16',1,'2026-11-16 00:00:00')");$pdo->exec("INSERT INTO reminders (title,category,reminder_at,has_time,status,created_by,created_at) VALUES ('Owner reminder','Rumah','2026-12-01 09:00:00',1,'pending',1,'2026-11-16 00:00:00')");`});
+for (const [action,data] of [
+ ['transaction/update',{id:1,title:'Unauthorized change'}],
+ ['transaction/delete',{id:1}],
+ ['reminder/update',{id:1,title:'Unauthorized change'}],
+ ['reminder/delete',{id:1}],
+ ['attachment/save',{entity_type:'transaction',entity_id:1}],
+ ['attachment/delete',{id:1}],
+ ['google/send',{id:1}],
+ ['users/reset-password',{id:1,password:'unauthorized-new-password'}],
+]) assert.equal((await member.request(action,data)).status,403,action+' ownership/role');
+assert.equal((await member.request('reminders')).status,200,'Household reading remains shared by design');
+assert.equal((await member.request('transaction/create',{kind:'expense',title:'Member own',category:'Rumah',amount:50,date:'2026-11-16',user_id:1})).status,200);
+const actualOwner=await php.run({code:`<?php require '/www/includes/app.php';echo app_db()->query("SELECT user_id FROM transactions WHERE title='Member own'")->fetchColumn();`});
+assert.notEqual(actualOwner.text,'1','Client user_id cannot impersonate another owner');
+const ownerTitle=await php.run({code:`<?php require '/www/includes/app.php';echo app_db()->query('SELECT title FROM transactions WHERE id=1')->fetchColumn();`});
+assert.equal(ownerTitle.text,'Owner fixture','Denied operations leave the owner data intact');
+
 const users = (await a.request('users/list')).json;
 const memberId = users.users.find(u=>u.username==='testmember').id;
 assert.equal((await a.request('users/reset-password',{id:memberId,password:'reset-member-password'})).status,200);

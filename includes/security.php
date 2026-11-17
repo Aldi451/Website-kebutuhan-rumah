@@ -145,3 +145,54 @@ function app_limit_login(PDO $pdo, string $username): void
         app_json(['ok' => false, 'message' => 'Terlalu banyak percobaan login. Tunggu hingga 15 menit sebelum mencoba lagi.'], 429);
     }
 }
+
+/** Reserve one attempt atomically. Denials do not extend the cooldown. */
+function app_notification_slot(PDO $pdo, string $bucket, int $limit, int $seconds, int $now): int
+{
+    $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $pdo->exec('CREATE TABLE IF NOT EXISTS security_notification_limits (bucket VARCHAR(64) NOT NULL PRIMARY KEY, used_count INTEGER NOT NULL, reset_at INTEGER NOT NULL)');
+    $cleanup = $pdo->prepare('DELETE FROM security_notification_limits WHERE reset_at < :expired');
+    $cleanup->execute([':expired' => $now - 900]);
+    $key = hash('sha256', $bucket);
+    $insert = $pdo->prepare(($mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE') . ' INTO security_notification_limits (bucket, used_count, reset_at) VALUES (:bucket, 0, :reset)');
+    $insert->execute([':bucket' => $key, ':reset' => $now + $seconds]);
+    $update = $pdo->prepare('UPDATE security_notification_limits SET used_count = CASE WHEN reset_at <= :now1 THEN 1 ELSE used_count + 1 END, reset_at = CASE WHEN reset_at <= :now2 THEN :reset ELSE reset_at END WHERE bucket = :bucket AND (reset_at <= :now3 OR used_count < :lim)');
+    $update->execute([':now1' => $now, ':now2' => $now, ':now3' => $now, ':reset' => $now + $seconds, ':bucket' => $key, ':lim' => $limit]);
+    if ($update->rowCount() === 1) return 0;
+    $read = $pdo->prepare('SELECT reset_at FROM security_notification_limits WHERE bucket = :bucket');
+    $read->execute([':bucket' => $key]);
+    return max(1, (int) $read->fetchColumn() - $now);
+}
+
+/** All provider calls share persistent actor/household budgets, including cron. */
+function app_notification_budget(string $channel, ?string $resource = null): array
+{
+    try {
+        $pdo = app_db();
+        $actor = !empty($_SESSION['user_id']) ? 'user:' . (int) $_SESSION['user_id'] : 'system';
+        $buckets = $resource === null
+            ? [[$channel . ':' . $actor, 30, 900], [$channel . ':household', 100, 900]]
+            : [[$channel . ':resource:' . $resource, 1, 60]];
+        foreach ($buckets as [$key, $limit, $seconds]) {
+            $retry = app_notification_slot($pdo, $key, $limit, $seconds, time());
+            if ($retry > 0) {
+                $message = 'Batas pengiriman tercapai. Coba lagi dalam ' . $retry . ' detik. Data yang sudah disimpan tetap aman.';
+                return ['ok' => false, 'rate_limited' => true, 'retry_after' => $retry, 'message' => $message, 'description' => $message, 'data' => []];
+            }
+        }
+        return ['ok' => true];
+    } catch (Throwable $e) {
+        // Fail closed: a broken quota store must not allow unlimited provider calls.
+        error_log('[Notification limit] quota storage unavailable');
+        $message = 'Pengiriman ditunda karena pembatas keamanan belum dapat diakses. Periksa database hosting.';
+        return ['ok' => false, 'rate_limited' => true, 'retry_after' => 60, 'message' => $message, 'description' => $message, 'data' => []];
+    }
+}
+
+function app_notification_reject_if_limited(array $result): void
+{
+    if (!empty($result['rate_limited'])) {
+        header('Retry-After: ' . (int) $result['retry_after']);
+        app_json(['ok' => false, 'message' => $result['description'], 'retry_after' => (int) $result['retry_after']], 429);
+    }
+}

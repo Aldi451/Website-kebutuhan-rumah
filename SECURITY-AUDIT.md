@@ -65,3 +65,30 @@ Test fixture memakai database WASM in-memory, bukan data produksi. Tidak ada per
 ## Tindak lanjut laporan eksternal
 
 Patch lanjutan dan pembaruan status ada pada **SECURITY-REMEDIATION.md**: HSTS khusus HTTPS, header isolasi origin produksi, header entry point/error yang lebih menyeluruh, no-store untuk lampiran, dan endpoint RFC 9116 yang memerlukan kontak nyata dari pemilik. Tes tambahan: `node scripts/test-assessment-remediation.mjs`. Dokumen ini dan dokumen tindak lanjut tidak mengklaim konfigurasi hosting/DNS/TLS sudah diverifikasi.
+
+
+## Pembaruan tahap 1: pembatas notifikasi
+
+Risiko pengiriman berulang kini dimitigasi dengan counter database atomik untuk percobaan WhatsApp/Google, kuota pengguna/rumah, dan cooldown kirim manual per reminder. Jalur pengiriman WhatsApp terpusat sehingga broadcast, bot, cron, dan tes memakai pembatas yang sama. Pengiriman otomatis reminder yang dimatikan juga tidak lagi dijalankan sebelum pemeriksaan pengaturan. Lihat README untuk angka batas dan konsekuensi pengiriman parsial.
+
+Tes baru `scripts/test-notification-limits.mjs` memeriksa batas dan expiry, cooldown lintas pengguna/login, kuota rumah/background, pemisahan layanan, pengiriman terpusat, HTTP 429/Retry-After, penyimpanan reminder saat kuota habis, dan kegagalan database yang menahan pengiriman. Ini tes lokal SQLite/WASM, bukan uji konkurensi MySQL atau layanan produksi. Kuota pembuatan data secara umum, 2FA admin, dan enkripsi token tetap belum diterapkan.
+
+
+## Pemeriksaan lanjutan: webhook, debug, dan otorisasi objek
+
+**Temuan terkonfirmasi lokal (bersyarat):** `whatsapp.php?debug=1` sebelumnya mengembalikan `reply_text` yang dapat memuat saldo/laporan. Pemanggil harus memiliki secret webhook dan mengetahui nomor bot yang mendapat akses laporan; tidak perlu sesi login dashboard. Tes fixture admin bot + permintaan saldo gagal sebelum patch karena isi laporan muncul di HTTP, lalu lulus setelah semua pengembalian `reply_text` dihapus. Dampak: memperbesar kebocoran jika secret URL/log sudah bocor. Tidak ada klaim telah dieksploitasi di produksi.
+
+Perbaikan: respons webhook hanya metadata status, batas body 64 KiB, validasi tipe/panjang field, GET/POST saja, key array ditolak tanpa cast warning, error konfigurasi generik, dan pengiriman gagal tidak lagi dilaporkan `replied=true`. Detail exception cron tidak lagi dikirim pada mode debug. Jalur bearer-secret vendor tetap memerlukan rotasi saat diduga bocor; tidak ditambahkan signature fiktif yang tidak didukung provider.
+
+Tes otorisasi tambahan menolak modifikasi transaksi/reminder/lampiran akun lain dan pengiriman Google untuk catatan akun lain oleh anggota, menolak reset admin, serta memastikan pemalsuan `user_id` tidak mengubah pemilik transaksi. Semua menggunakan database fixture lokal. Pembacaan data bersama memang fitur aplikasi satu rumah; bukan bukti kebocoran anonim.
+
+Tes tambahan: `scripts/test-webhook-security.mjs`, perluasan `scripts/test-security.mjs`. Belum menguji provider live, MySQL, atau data produksi; 2FA dan enkripsi token masih belum termasuk patch ini.
+
+
+## Pemeriksaan lanjutan: batas decoding gambar dan serialisasi SQL backup
+
+**Penguatan ketersediaan:** gambar terkompresi dibatasi byte, tetapi jalur lama masih mengizinkan 40 juta piksel tanpa menghitung sisa memori sebelum GD decode. Alokasi piksel berpotensi melampaui memori shared hosting. Batas diturunkan ke 8 juta piksel dan ditambahkan perkiraan memori sebelum decode; kegagalan decoder ditolak, bukan disimpan sebagai file asli. Tes memakai PNG grayscale valid 4000×2500 yang kecil secara terkompresi dan memastikan ditolak sebelum decode. Tidak dilakukan eksperimen menghabiskan memori server produksi atau klaim OOM telah terjadi.
+
+**Integritas backup / defense-in-depth:** serialisasi lama menggabungkan penggandaan backslash manual dan quoting PDO sumber. Hasil bergantung pada driver serta mode SQL saat restore; ada risiko perubahan karakter/double escaping. Sekarang teks dikodekan sebagai literal hex UTF-8 untuk MySQL/MariaDB. Tes memastikan data kutip, backslash, Unicode, NUL, dan teks mirip SQL hanya menjadi data reversibel. Tidak diklaim ada SQL injection langsung atau exploit restore yang telah dibuktikan pada produksi; restore MySQL staging masih wajib.
+
+Tes `scripts/test-backup-upload.mjs` lulus lokal. Encoding backup **tidak** menyelesaikan risiko secret at-rest/backup bocor, dan dapat memperbesar ukuran backup. 2FA dan enkripsi token belum ditambahkan. Lihat README untuk batasan GD tanpa dukungan, memori hosting, dan prosedur retest.

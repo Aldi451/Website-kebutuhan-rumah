@@ -8,7 +8,8 @@ header('Cache-Control: no-store, max-age=0');
 
 try {
     $expected = (string) (app_config()['cron_secret'] ?? '');
-    $provided = (string) ($_GET['key'] ?? $_SERVER['HTTP_X_CRON_KEY'] ?? '');
+    $providedRaw = $_GET['key'] ?? $_SERVER['HTTP_X_CRON_KEY'] ?? '';
+    $provided = is_string($providedRaw) ? $providedRaw : '';
     if (strlen($expected) < 32 || $provided === '' || !hash_equals($expected, $provided)) {
         http_response_code(403);
         echo "Akses ditolak.\n";
@@ -52,9 +53,6 @@ try {
     } catch (Throwable $error) {
         error_log('[Laporan bulanan] ' . $error->getMessage());
         $monthlyNote = ' Laporan bulanan gagal diproses.';
-        if ((string) ($_GET['debug'] ?? '') === '1') {
-            $monthlyNote .= ' (' . $error->getMessage() . ')';
-        }
     }
 
     echo "Pemeriksaan pengingat selesai. Terkirim: {$sent}; belum terkirim: {$failed}.{$monthlyNote}\n";

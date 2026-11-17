@@ -25,11 +25,19 @@ function app_wa_webhook_json(array $payload, int $status = 200): never
     exit;
 }
 
-$expected = app_wa_webhook_secret();
-$provided = (string) ($_GET['key'] ?? $_SERVER['HTTP_X_WEBHOOK_KEY'] ?? '');
-if ($provided === '' || !hash_equals($expected, $provided)) {
+try {
+    // Reading the endpoint must not create/reset a webhook credential.
+    $expected = (string) app_setting('wa_webhook_secret', '');
+} catch (Throwable $error) {
+    error_log('[Bot WhatsApp] unable to read webhook configuration');
+    app_wa_webhook_json(['ok' => false, 'message' => 'Konfigurasi webhook belum dapat diakses.'], 503);
+}
+$providedRaw = $_GET['key'] ?? $_SERVER['HTTP_X_WEBHOOK_KEY'] ?? '';
+$provided = is_string($providedRaw) ? $providedRaw : '';
+if (strlen($expected) < 32 || $provided === '' || !hash_equals($expected, $provided)) {
     app_wa_webhook_json(['ok' => false, 'message' => 'Kunci webhook tidak valid.'], 403);
 }
+app_allow_methods(['GET', 'POST']);
 
 $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if ($method !== 'POST') {
@@ -37,13 +45,22 @@ if ($method !== 'POST') {
 }
 
 try {
-    $raw = file_get_contents('php://input');
+    $maxBody = 64 * 1024;
+    if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > $maxBody) app_wa_webhook_json(['ok' => false, 'message' => 'Payload webhook terlalu besar.'], 413);
+    $raw = file_get_contents('php://input', false, null, 0, $maxBody + 1);
+    if (is_string($raw) && strlen($raw) > $maxBody) app_wa_webhook_json(['ok' => false, 'message' => 'Payload webhook terlalu besar.'], 413);
     $payload = json_decode($raw === false ? '' : $raw, true);
     if (!is_array($payload)) {
         $payload = $_POST;
     }
     if (!is_array($payload) || $payload === []) {
         app_wa_webhook_json(['ok' => false, 'message' => 'Isi webhook kosong.'], 422);
+    }
+
+    foreach (['sender' => 80, 'member' => 80, 'device' => 80, 'type' => 40, 'message' => 4096, 'text' => 4096, 'timestamp' => 80, 'inboxid' => 200] as $field => $limit) {
+        if (isset($payload[$field]) && ((!is_string($payload[$field]) && !is_int($payload[$field])) || strlen((string) $payload[$field]) > $limit)) {
+            app_wa_webhook_json(['ok' => false, 'message' => 'Format field webhook tidak valid.'], 422);
+        }
     }
 
     $sender = trim((string) ($payload['sender'] ?? ''));
@@ -67,7 +84,6 @@ try {
         app_wa_webhook_json(['ok' => true, 'ignored' => 'pesan sudah pernah diproses']);
     }
 
-    $debug = (string) ($_GET['debug'] ?? '') === '1';
     $isGroup = str_contains($sender, '@g.us');
     $person = $isGroup ? $memberPhone : $senderPhone;
     $replyTarget = $isGroup ? $sender : ($senderPhone ?? $sender);
@@ -93,9 +109,6 @@ try {
             }
         }
         $response = ['ok' => true, 'authorized' => false];
-        if ($debug && $notice !== '') {
-            $response['reply_text'] = $notice;
-        }
         app_wa_webhook_json($response);
     }
     if ((int) $contact['active'] !== 1) {
@@ -104,9 +117,6 @@ try {
             app_send_whatsapp($notice, $replyTarget);
         }
         $response = ['ok' => true, 'authorized' => false, 'active' => false];
-        if ($debug && $notice !== '') {
-            $response['reply_text'] = $notice;
-        }
         app_wa_webhook_json($response);
     }
 
@@ -120,11 +130,8 @@ try {
         if (in_array($type, ['image', 'video', 'audio', 'document', 'file', 'sticker'], true)) {
             $reply = 'Lampiran belum bisa dibaca bot. Ketik pertanyaan dalam bentuk teks, misalnya "laporan bulan ini".';
         }
-        app_send_whatsapp($reply, $replyTarget);
-        $response = ['ok' => true, 'replied' => true];
-        if ($debug) {
-            $response['reply_text'] = $reply;
-        }
+        $sendResult = app_send_whatsapp($reply, $replyTarget);
+        $response = ['ok' => true, 'replied' => (bool) ($sendResult['ok'] ?? false)];
         app_wa_webhook_json($response);
     }
     if ((function_exists('mb_strlen') ? mb_strlen($message) : strlen($message)) > 500) {
@@ -132,11 +139,8 @@ try {
             app_wa_webhook_json(['ok' => true, 'ignored' => 'pesan grup terlalu panjang']);
         }
         $reply = 'Pertanyaan terlalu panjang. Tulis singkat saja, misalnya "laporan bulan ini" atau "target".';
-        app_send_whatsapp($reply, $replyTarget);
-        $response = ['ok' => true, 'replied' => true, 'reason' => 'pesan terlalu panjang'];
-        if ($debug) {
-            $response['reply_text'] = $reply;
-        }
+        $sendResult = app_send_whatsapp($reply, $replyTarget);
+        $response = ['ok' => true, 'replied' => (bool) ($sendResult['ok'] ?? false), 'reason' => 'pesan terlalu panjang'];
         app_wa_webhook_json($response);
     }
 
@@ -151,10 +155,8 @@ try {
         'replied' => (bool) ($result['ok'] ?? false),
         'send_message' => (string) ($result['description'] ?? ''),
     ];
-    // ?debug=1 membantu admin memeriksa isi jawaban bot tanpa membuka WhatsApp.
-    if ($debug) {
-        $response['reply_text'] = $reply;
-    }
+    // Never echo report contents to the HTTP caller, even for legacy debug=1.
+    // The webhook secret authenticates the integration, not a dashboard admin.
     app_wa_webhook_json($response);
 } catch (Throwable $error) {
     error_log('[Bot WhatsApp] ' . $error->getMessage());

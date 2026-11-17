@@ -1,3 +1,35 @@
+# Pemeriksaan lanjutan — upload bukti dan integritas backup
+
+Perubahan terbaru ada pada **includes/app.php** (paket tetap kumulatif dengan pembatas notifikasi dan perbaikan webhook). Upload kini maksimal 8 megapiksel dan memeriksa perkiraan sisa memori sebelum GD decode; kecilkan foto jika ditolak. Format literal teks backup SQL diperbarui agar tidak bergantung pada escaping backslash PDO/mode MySQL.
+
+**Backup tetap sensitif: hex bukan enkripsi.** Simpan backup lama dengan aman, lalu uji restore backup baru pada database MySQL/MariaDB staging kosong; periksa backslash, kutip, dan Unicode. Ukuran dump dapat meningkat, jadi periksa batas backup otomatis. Tidak perlu mengubah config atau impor migrasi untuk memakai perbaikan ini. Jangan menimpa database produksi saat uji restore.
+
+Tes lokal tambahan: `node scripts/test-backup-upload.mjs`. Pemakaian memori GD, kompatibilitas restore MySQL, serta hosting produksi belum diuji lewat sesi ini.
+
+---
+
+# Pemeriksaan lanjutan — tutup keluaran laporan di debug webhook
+
+Paket terbaru juga membawa **whatsapp.php** dan **cron.php**. Wajib timpa kedua file di root hosting, selain berkas tahap pembatas notifikasi di bawah. Webhook tidak lagi mengembalikan isi laporan melalui `debug=1`, body dibatasi 64 KiB, input divalidasi, dan status pengiriman tidak lagi mengaku sukses saat gagal. Detail exception cron tidak dipublikasikan melalui debug.
+
+**Jika URL/secret webhook pernah dibagikan:** ganti kunci di Pengaturan → Bot WhatsApp, lalu perbarui URL webhook di dashboard Fonnte. Jangan kirim kunci ke chat. Patch tidak otomatis merotasi secret agar integrasi yang sah tidak putus. Verifikasi pesan teks normal dari nomor milik sendiri setelah deployment; provider yang mengirim file media inline >64 KiB perlu disesuaikan ke metadata/URL, bukan menaikkan batas tanpa pemeriksaan.
+
+Tes lokal: `node scripts/test-webhook-security.mjs` serta pengujian otorisasi antaranggota di `node scripts/test-security.mjs`. Laporan temuan ada di SECURITY-AUDIT.md. Tidak ada perubahan database produksi melalui sesi ini.
+
+---
+
+# Pembatas notifikasi — penguatan tahap 1
+
+Paket terbaru menambahkan kuota pengiriman WhatsApp/Google dan cooldown reminder manual, serta memperbaiki notifikasi reminder nonaktif yang sebelumnya diperiksa setelah pengiriman. Data reminder tetap disimpan jika pengiriman dibatasi.
+
+Untuk instalasi yang sudah memakai update sebelumnya, perubahan runtime tahap ini ada pada **api.php**, **includes/app.php**, **includes/security.php**, dan **includes/google-calendar.php**. Timpa ke lokasi yang sama; jangan timpa config.php atau database. ZIP membawa paket kumulatif. Tabel counter dibuat otomatis saat dibutuhkan; tidak perlu impor SQL manual, tetapi user database perlu izin CREATE/INSERT/UPDATE/DELETE.
+
+Batas: 30 percobaan/pengguna/15 menit dan 100/rumah/15 menit **per layanan**; background cron/bot berbagi kuota system 30. WhatsApp menghitung tiap penerima. Tombol reminder manual mendapat cooldown 60 detik per reminder per layanan. Percobaan gagal tetap dihitung. Tunggu waktu yang ditampilkan sebelum mengirim ulang. Broadcast dapat berhasil sebagian; periksa pesan hasil. Detail perilaku dan batasan ada di README utama.
+
+**Tahap ini belum memasang 2FA atau enkripsi token.** Backup tetap sensitif. Tes lokal: `node scripts/test-notification-limits.mjs`; setelah pemasangan lakukan uji dengan penerima sendiri, jangan spam nomor lain atau sengaja menghabiskan kuota produksi.
+
+---
+
 # Perbaikan tanggal acuan laporan
 
 Tanggal acuan, jenis transaksi, kategori, dan parameter pembanding kini dikirim lengkap ke API. Sebelumnya helper URL memotong parameter setelah `period`, sehingga server memakai tanggal hari ini meskipun input tanggal sudah berubah. Respons laporan lama yang datang terlambat juga diabaikan bila filter sudah berubah.
@@ -47,6 +79,8 @@ ZIP tersebut sudah membawa struktur folder yang benar:
 ```
 index.php
 api.php
+whatsapp.php
+cron.php
 security-contact.php
 includes/google-calendar.php
 includes/app.php

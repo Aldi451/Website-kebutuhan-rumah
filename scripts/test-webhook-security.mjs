@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {loadPHPRuntime,PHP,PHPRequestHandler} from '@php-wasm/universal';
+import {getPHPLoaderModule} from '@php-wasm/node-8-2';
+const php=new PHP(await loadPHPRuntime(await getPHPLoaderModule()));
+php.mkdirTree('/www/includes');php.mkdirTree('/www/storage');
+for(const file of ['whatsapp.php','cron.php','includes/app.php','includes/security.php','includes/wa.php']) php.writeFile('/www/'+file,fs.readFileSync(file));
+const secret='fixture-secret-for-webhook-tests-only-123456';
+php.writeFile('/www/config.php',`<?php return ['dsn'=>'sqlite:/www/storage/test.sqlite'];`);
+await php.run({code:`<?php require '/www/includes/app.php';$pdo=app_db();app_set_setting('wa_webhook_secret','${secret}');$pdo->exec("INSERT INTO wa_contacts (phone,name,access,active,created_at) VALUES ('628123456789','Fixture','admin',1,'2026-01-01 00:00:00')");$pdo->exec("INSERT INTO transactions (kind,title,category,amount,transaction_date,user_id,created_at) VALUES ('income','Fixture private transaction','Fixture',987654321,'2026-01-01',1,'2026-01-01 00:00:00')");`});
+const handler=new PHPRequestHandler({php,documentRoot:'/www',absoluteUrl:'http://localhost:8080',cookieStore:false});
+async function call(body,query=`key=${secret}&debug=1`,method='POST'){
+ const r=await handler.request({url:'/whatsapp.php?'+query,method,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:new TextEncoder().encode(JSON.stringify(body))})});
+ return {status:r.httpStatusCode,json:JSON.parse(r.text),text:r.text,headers:r.headers};
+}
+assert.equal((await call({sender:'628123456789',message:'saldo'},'key=wrong&debug=1')).status,403);
+const report=await call({sender:'628123456789',message:'saldo',inboxid:'private-report-test'});
+assert.equal(report.status,200);assert.equal(report.json.authorized,true);
+assert.ok(!('reply_text' in report.json),'Webhook debug must not return private report text, even with a valid webhook key');
+assert.ok(!report.text.includes('987.654.321'),'Balance must not appear in HTTP response');
+assert.equal(report.json.replied,false,'No provider credentials in fixture');
+assert.equal((await call({sender:['628123456789'],message:'saldo'})).status,422);
+assert.equal((await call({sender:'628123456789',message:'x'.repeat(70*1024)})).status,413);
+assert.equal((await call({},`key[]=${secret}`)).status,403);
+assert.equal((await call({},`key=${secret}`,'PUT')).status,405);
+const unknown=await call({sender:'628199999999',message:'saldo',inboxid:'unknown'});
+assert.equal(unknown.json.authorized,false);assert.ok(!('reply_text' in unknown.json));
+const noText=await call({sender:'628123456789',type:'image',inboxid:'image'});
+assert.equal(noText.json.replied,false,'Failed delivery must not be reported as successful');
+assert.ok(!('reply_text' in noText.json));
+console.log('Webhook tests passed: no report text in debug, auth, malformed fields/keys, size/method bounds, accurate delivery status.');
