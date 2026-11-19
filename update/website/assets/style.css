@@ -483,7 +483,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .reminder-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .tag { display: inline-flex; padding: 4px 7px; border-radius: 6px; color: #718980; background: #f1f7f3; font-size: 8px; font-weight: 600; }
 .reminder-meta .byline { color: #a3adaf; font-size: 9px; }
-.reminder-actions { display: flex; align-items: center; gap: 5px; margin-left: 5px; }
+.reminder-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; margin-left: 5px; max-width: 48%; }
+.reminder-actions > button { flex-shrink: 0; }
+.reminder-edit-button { white-space: nowrap; }
 .check-button { display: inline-grid; place-items: center; width: 31px; height: 31px; border: 1px solid #e0ebe5; border-radius: 10px; color: #5c9878; background: #f5faf7; }
 .check-button:hover { color: #fff; border-color: var(--green); background: var(--green); }
 .check-button svg { width: 15px; height: 15px; }
@@ -684,7 +686,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .reminder-item { flex-wrap: wrap; align-items: flex-start; gap: 10px; }
   .reminder-date-box { width: 43px; height: 50px; }
   .reminder-copy { padding-top: 2px; }
-  .reminder-actions { width: 100%; margin: 2px 0 0; justify-content: flex-end; }
+  .reminder-actions { width: 100%; max-width: 100%; margin: 2px 0 0; justify-content: flex-end; }
   .settings-card { padding: 16px; }
   .settings-backup .backup-stats { grid-template-columns: 1fr 1fr; }
   .receipt-preview { flex-wrap: wrap; }

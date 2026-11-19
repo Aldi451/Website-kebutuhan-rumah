@@ -46,3 +46,20 @@ assert.ok(!cancelledMarkup.includes('status-overdue'));
 state.reminderFilter='all';state.reminders.reminders[0].status='pending';
 assert.ok(remindersMarkup().includes('data-action="cancel-reminder"'));
 console.log('Cancel UI tests passed: filter, count, badge, actions and no overdue marker.');
+
+// Edit remains available for every status to admins/owners, but not other members.
+for (const status of ['pending','done','cancel']) {
+  state.reminderFilter='all';state.reminderPeriod='2026-11-19';
+  state.reminders={reminders:[{...rows[0],status,created_by:7}]};
+  for (const user of [{id:1,role:'admin'},{id:7,role:'member'},{id:8,role:'member'}]) {
+    state.user=user;
+    const html=remindersMarkup();
+    const allowed=user.role==='admin'||user.id===7;
+    assert.equal(html.includes('data-action="edit-reminder"'),allowed);
+    if(allowed){
+      assert.ok(html.includes('<span>Edit</span>'));
+      assert.ok(html.includes('<span class="reminder-actions"><button class="btn btn-secondary btn-small reminder-edit-button"'));
+    }
+  }
+}
+console.log('Edit reminder visibility passed: labelled first action, all statuses, admin/owner only.');

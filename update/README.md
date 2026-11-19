@@ -1,3 +1,13 @@
+# Perbaikan visibilitas Edit pengingat
+
+Tombol Edit kini berlabel teks dan ditempatkan pertama dalam deretan aksi. Tombol aksi dapat turun baris agar tidak memaksa lebar kartu. Hak edit tetap pembuat/admin, termasuk status Aktif, Selesai, dan Cancel. Mengedit tidak mengubah status secara otomatis.
+
+Untuk instalasi terbaru, timpa `assets/app.js`, `assets/style.css`, dan `index.php` bersama-sama (cache versi JS 31 / CSS 18). Jika masih melihat tampilan lama, lakukan hard refresh. Tidak perlu migrasi database. ZIP tetap kumulatif dengan perbaikan terdahulu.
+
+Tes lokal markup dan API: tombol Edit untuk admin/pemilik pada semua status, penyimpanan judul/kategori/tanggal/jam/catatan, status tetap, serta penolakan edit akun lain. Penyebab pasti tampilan pada hosting pengguna belum diverifikasi melalui browser live.
+
+---
+
 # Update transaksi dashboard bulan berjalan
 
 Daftar transaksi dashboard kini hanya menampilkan maksimal 7 transaksi terbaru pada bulan/tahun berjalan, berdasarkan tanggal transaksi dan zona waktu aplikasi. Bulan kosong menampilkan pesan khusus tanpa mencampur riwayat bulan lain. Saldo sepanjang waktu dan riwayat Keuangan tidak berubah.
