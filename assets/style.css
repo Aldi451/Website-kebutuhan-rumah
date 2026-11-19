@@ -728,3 +728,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Reminder filters: wrap controls on narrow screens without horizontal overflow. */
+.reminder-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; padding: 16px 19px; }
+.reminder-filters .field { flex: 1 1 180px; min-width: 0; }
+.reminder-filters .input { width: 100%; }
+.reminder-filter-note { flex-basis: 100%; margin: 0; }
+.reminder-result-count { padding: 0 19px 14px; margin: 0; font-size: 13px; color: var(--text-muted, #64748b); }
+@media (max-width: 600px) {
+  .reminder-filters { padding: 14px; }
+  .reminder-filters .field { flex-basis: 100%; }
+  .reminder-result-count { padding: 0 14px 14px; }
+}

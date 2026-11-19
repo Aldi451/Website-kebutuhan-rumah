@@ -500,3 +500,9 @@ Gambar bukti dibatasi **8 megapiksel** sebelum decoding (sebelumnya 40 megapikse
 Backup MySQL/MariaDB kini menulis teks sebagai `CONVERT(X'…' USING utf8mb4)`, bukan menggabungkan penggandaan backslash manual dengan `PDO::quote`. Tujuannya menjaga karakter backslash, kutip, Unicode, dan byte kontrol tanpa bergantung pada driver sumber atau mode backslash MySQL. **Hex adalah encoding reversibel, bukan enkripsi.** Secret dan hash password tetap dapat dipulihkan dari backup; jaga backup tetap privat. File SQL bisa lebih besar (hex kira-kira dua kali ukuran byte teks), sehingga periksa kuota/limit backup otomatis.
 
 Format tetap untuk impor MySQL/MariaDB, bukan SQL SQLite langsung. Lakukan uji restore di database staging kosong sebelum bergantung pada backup baru. Tes `node scripts/test-backup-upload.mjs` memeriksa pemulihan byte literal, isi dump, PNG terkompresi kecil dengan 10 juta piksel yang ditolak sebelum decoding, kalkulasi anggaran memori, PNG kecil valid, penolakan SVG, dan batas ukuran byte. Tes lokal tidak menjalankan restore MySQL atau menguji penggunaan memori GD di InfinityFree.
+
+## Filter daftar pengingat
+
+Kategori dan status bisa digabung dengan satu tanggal periode. Pilih **19/11/2026** untuk menampilkan jadwal **1–19 November 2026**, termasuk seluruh tanggal 19. Bulan/tahun lain dan tanggal setelah pilihan tidak ikut. Tanggal awal otomatis tanggal 1 pada bulan yang dipilih, bukan rentang bebas. Nilai awal dan reset memakai hari ini dalam zona waktu aplikasi. Input tanggal menggunakan kalender browser (tampilan mengikuti locale perangkat); keterangan rentang selalu memakai DD/MM/YYYY. Ringkasan mengikuti kategori/periode; status hanya menyaring daftar.
+
+Pilihan bertahan selama navigasi dalam sesi halaman, tidak disimpan setelah reload. Filter bekerja lokal pada maksimal 1.000 pengingat yang dikembalikan API; saat batas tersebut tercapai, UI menampilkan keterbatasan itu. Uji: `node scripts/test-reminder-filters.mjs`.
