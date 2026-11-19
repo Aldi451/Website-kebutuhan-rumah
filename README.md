@@ -506,3 +506,13 @@ Format tetap untuk impor MySQL/MariaDB, bukan SQL SQLite langsung. Lakukan uji r
 Kategori dan status bisa digabung dengan satu tanggal periode. Pilih **19/11/2026** untuk menampilkan jadwal **1–19 November 2026**, termasuk seluruh tanggal 19. Bulan/tahun lain dan tanggal setelah pilihan tidak ikut. Tanggal awal otomatis tanggal 1 pada bulan yang dipilih, bukan rentang bebas. Nilai awal dan reset memakai hari ini dalam zona waktu aplikasi. Input tanggal menggunakan kalender browser (tampilan mengikuti locale perangkat); keterangan rentang selalu memakai DD/MM/YYYY. Ringkasan mengikuti kategori/periode; status hanya menyaring daftar.
 
 Pilihan bertahan selama navigasi dalam sesi halaman, tidak disimpan setelah reload. Filter bekerja lokal pada maksimal 1.000 pengingat yang dikembalikan API; saat batas tersebut tercapai, UI menampilkan keterbatasan itu. Uji: `node scripts/test-reminder-filters.mjs`.
+
+### Status Cancel pada pengingat
+
+Tombol **Cancel** membatalkan tanpa menghapus data; ada konfirmasi, badge, dan filter **Cancel** yang bisa digabung kategori/periode. Pembuat/admin boleh membatalkan dan mengaktifkan ulang; perilaku kolaboratif tandai selesai/aktif pada pengingat non-cancel tetap seperti sebelumnya. Cancel tidak termasuk aktif/terlambat, tidak dipilih cron yang hanya mengambil `pending`, dan ditolak saat kirim WhatsApp manual. Tombol kalender disembunyikan; Google otomatis juga hanya menerima `pending`. Agenda yang sudah ada di Google Kalender **tidak otomatis dihapus**.
+
+API `reminder/toggle` menerima status opsional `pending`, `done`, `cancel`; tanpa status, pengingat selesai/cancel kembali aktif. `completed_at` hanya terisi untuk `done`. Kolom status sudah VARCHAR(12), jadi tidak perlu migrasi database. Pengaktifan ulang tidak menghapus riwayat `due_notified_at`, agar notifikasi yang sudah pernah terkirim tidak terduplikasi; kirim manual bila diperlukan.
+
+### Transaksi dashboard bulan berjalan
+
+Daftar **Transaksi bulan ini** hanya mengambil transaksi bertanggal dalam bulan/tahun berjalan menurut zona waktu server aplikasi, dari tanggal 1 hingga akhir bulan. Maksimal 7 baris terbaru, urut tanggal lalu ID menurun. Transaksi bulan lain tetap tersimpan dan tersedia di Keuangan; jika bulan berjalan kosong, dashboard tidak mengambil pengganti dari bulan lain. Saldo sepanjang waktu dan grafik historis tidak diubah. Tes: `node scripts/test-dashboard-month.mjs`.

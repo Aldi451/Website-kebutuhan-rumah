@@ -28,14 +28,14 @@ try {
     <meta name="description" content="Catatan keuangan rumah dan pengingat keluarga dalam satu dashboard.">
     <title>Masuk — Catatan keuangan rumah</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand.svg">
-    <link rel="stylesheet" href="/assets/style.css?v=15">
+    <link rel="stylesheet" href="/assets/style.css?v=17">
     <script nonce="<?= htmlspecialchars(app_csp_nonce(), ENT_QUOTES, 'UTF-8') ?>">
         window.APP_BOOT = <?= json_encode($boot, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     </script>
     <script defer src="/assets/importer.js?v=3"></script>
     <script defer src="/assets/clipboard-import.js?v=2"></script>
     <script defer src="/assets/calendar.js?v=2"></script>
-    <script defer src="/assets/app.js?v=25"></script>
+    <script defer src="/assets/app.js?v=30"></script>
 </head>
 <body>
     <div id="app" aria-live="polite">

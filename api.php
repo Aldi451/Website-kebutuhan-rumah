@@ -169,11 +169,15 @@ try {
             $chart[] = ['month' => $chartMonth, 'label' => $chartDate->format('M'), 'income' => $values['income'], 'expense' => $values['expense']];
         }
 
-        $recentQuery = $pdo->query('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id ORDER BY t.transaction_date DESC, t.id DESC LIMIT 7');
+        $recentQuery = $pdo->prepare('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id WHERE t.transaction_date >= :start AND t.transaction_date < :end ORDER BY t.transaction_date DESC, t.id DESC LIMIT 7');
+        $recentQuery->execute([
+            ':start' => $month . '-01',
+            ':end' => (new DateTimeImmutable($month . '-01'))->modify('+1 month')->format('Y-m-d'),
+        ]);
         $reminderQuery = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = 'pending' ORDER BY r.reminder_at ASC LIMIT 4");
         $reminderQuery->execute();
         $reminderCounts = $pdo->query("SELECT status, COUNT(*) AS total FROM reminders GROUP BY status")->fetchAll();
-        $counts = ['pending' => 0, 'done' => 0];
+        $counts = ['pending' => 0, 'done' => 0, 'cancel' => 0];
         foreach ($reminderCounts as $row) {
             $counts[(string) $row['status']] = (int) $row['total'];
         }
@@ -822,7 +826,7 @@ try {
 
     if ($action === 'reminders' && $method === 'GET') {
         $status = trim((string) ($_GET['status'] ?? 'all'));
-        if (!in_array($status, ['all', 'pending', 'done'], true)) {
+        if (!in_array($status, ['all', 'pending', 'done', 'cancel'], true)) {
             $status = 'all';
         }
         if ($status === 'all') {
@@ -991,16 +995,23 @@ try {
         if (!$id || $id < 1) {
             app_json(['ok' => false, 'message' => 'Pengingat tidak ditemukan.'], 422);
         }
-        $query = $pdo->prepare('SELECT status FROM reminders WHERE id = :id');
+        $query = $pdo->prepare('SELECT status, created_by FROM reminders WHERE id = :id');
         $query->execute([':id' => $id]);
-        $status = $query->fetchColumn();
+        $row = $query->fetch();
+        $status = $row['status'] ?? false;
         if ($status === false) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
         }
-        $nextStatus = $status === 'done' ? 'pending' : 'done';
+        $nextStatus = $input['status'] ?? ($status === 'pending' ? 'done' : 'pending');
+        if (!is_string($nextStatus) || !in_array($nextStatus, ['pending', 'done', 'cancel'], true)) {
+            app_json(['ok' => false, 'message' => 'Status pengingat tidak valid.'], 422);
+        }
+        if (($nextStatus === 'cancel' || $status === 'cancel') && !app_can_manage_entity($user, (int) $row['created_by'])) {
+            app_json(['ok' => false, 'message' => 'Hanya pembuat atau admin yang dapat membatalkan/mengaktifkan kembali pengingat ini.'], 403);
+        }
         $update = $pdo->prepare('UPDATE reminders SET status = :status, completed_at = :completed WHERE id = :id');
         $update->execute([':status' => $nextStatus, ':completed' => $nextStatus === 'done' ? $now : null, ':id' => $id]);
-        app_json(['ok' => true, 'message' => $nextStatus === 'done' ? 'Pengingat ditandai selesai.' : 'Pengingat dikembalikan ke daftar aktif.']);
+        app_json(['ok' => true, 'message' => $nextStatus === 'cancel' ? 'Pengingat dibatalkan.' : ($nextStatus === 'done' ? 'Pengingat ditandai selesai.' : 'Pengingat dikembalikan ke daftar aktif.')]);
     }
 
     if ($action === 'reminder/delete' && $method === 'POST') {
@@ -1038,6 +1049,7 @@ try {
         if (!$reminder) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
         }
+        if ($reminder['status'] === 'cancel') app_json(['ok' => false, 'message' => 'Pengingat dibatalkan. Aktifkan kembali sebelum mengirim.'], 422);
         app_notification_reject_if_limited(app_notification_budget('whatsapp', 'reminder:' . $id));
         $result = app_send_whatsapp_broadcast(app_reminder_message($reminder, '🔔 Pengingat rumah • dikirim manual oleh ' . (string) $user['display_name']));
         app_notification_reject_if_limited($result);

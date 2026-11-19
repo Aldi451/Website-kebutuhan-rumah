@@ -33,3 +33,16 @@ control.value='';events.change();assert.equal(state.reminderPeriod,localDateValu
 events.reset();assert.equal(state.reminderCategory,'');assert.equal(state.reminderPeriod,localDateValue());assert.equal(state.reminderFilter,'all');
 state.reminders={reminders:[]};assert.ok(remindersMarkup().includes('Belum ada pengingat'));
 console.log('Reminder filters passed: selected month-to-date, inclusive full final day, category/status, exclusion of other months/years, leap day, invalid/empty fallback, safe markup, reset to today.');
+
+state.reminderPeriod='2026-11-19';state.reminderFilter='cancel';state.reminders={reminders:[{...rows[0],status:'cancel',created_by:1}]};
+const cancelledMarkup=remindersMarkup();
+assert.ok(cancelledMarkup.includes('data-reminder-filter="cancel"'));
+assert.ok(cancelledMarkup.includes('Cancel · 1'));
+assert.ok(cancelledMarkup.includes('status-cancel'));
+assert.ok(cancelledMarkup.includes('Menampilkan 1 dari 1'));
+assert.ok(cancelledMarkup.includes('Aktifkan lagi'));
+for(const action of ['google-send','send-reminder','calendar-reminder','cancel-reminder']) assert.ok(!cancelledMarkup.includes('data-action="'+action+'"'));
+assert.ok(!cancelledMarkup.includes('status-overdue'));
+state.reminderFilter='all';state.reminders.reminders[0].status='pending';
+assert.ok(remindersMarkup().includes('data-action="cancel-reminder"'));
+console.log('Cancel UI tests passed: filter, count, badge, actions and no overdue marker.');
