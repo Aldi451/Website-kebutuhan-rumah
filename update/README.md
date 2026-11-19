@@ -1,3 +1,13 @@
+# Update filter daftar pengingat
+
+Kategori + status Aktif/Selesai kini bisa digabung dengan satu tanggal periode. Contoh 19/11/2026 menampilkan jadwal 01/11/2026 sampai 19/11/2026 (inklusif), bukan seluruh bulan atau rentang bebas. Nilai awal/reset adalah hari ini. Ada jumlah hasil dan keadaan kosong. Filter berlaku pada maksimal 1.000 pengingat yang dimuat API (peringatan muncul saat batas tercapai).
+
+Untuk instalasi yang sudah memakai seluruh patch keamanan sebelumnya, perubahan fitur ini cukup menimpa `index.php`, `assets/app.js`, dan `assets/style.css`. Versi cache aset diperbarui. ZIP tetap kumulatif; tidak mengubah config/database. Laporan pengujian akhir keamanan sebelumnya adalah catatan historis; hash ZIP di laporan tersebut bukan hash paket setelah penambahan fitur ini.
+
+Tes fitur: `node scripts/test-reminder-filters.mjs` (lulus), regresi laporan dan kalender (lulus).
+
+---
+
 # Pemeriksaan lanjutan — upload bukti dan integritas backup
 
 Perubahan terbaru ada pada **includes/app.php** (paket tetap kumulatif dengan pembatas notifikasi dan perbaikan webhook). Upload kini maksimal 8 megapiksel dan memeriksa perkiraan sisa memori sebelum GD decode; kecilkan foto jika ditolak. Format literal teks backup SQL diperbarui agar tidak bergantung pada escaping backslash PDO/mode MySQL.

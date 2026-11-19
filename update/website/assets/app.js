@@ -25,6 +25,8 @@
     transactionFilter: 'all',
     reminders: null,
     reminderFilter: 'all',
+    reminderCategory: '',
+    reminderPeriod: localDateValue(),
     members: null,
     settings: null,
     report: null,
@@ -1605,8 +1607,19 @@
     }));
     content.querySelectorAll('[data-reminder-filter]').forEach((button) => button.addEventListener('click', () => {
       state.reminderFilter = button.dataset.reminderFilter;
-      refreshPage(true);
+      renderPageContent();
     }));
+    content.querySelectorAll('[data-reminder-control]').forEach((control) => control.addEventListener('change', () => {
+      const keys = { category: 'reminderCategory', period: 'reminderPeriod' };
+      state[keys[control.dataset.reminderControl]] = control.dataset.reminderControl === 'period' ? (control.value || localDateValue()) : control.value;
+      renderPageContent();
+    }));
+    content.querySelector('[data-reminder-reset]')?.addEventListener('click', () => {
+      state.reminderFilter = 'all';
+      state.reminderCategory = '';
+      state.reminderPeriod = localDateValue();
+      renderPageContent();
+    });
     const monthInput = content.querySelector('[data-month-filter]');
     if (monthInput) monthInput.addEventListener('change', () => {
       state.financeMonth = monthInput.value || currentMonth();
@@ -1898,9 +1911,39 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // A selected date means the first of that month through that date, inclusive.
+  function reminderDateRange(today = localDateValue()) {
+    const selected = state.reminderPeriod;
+    const parsed = new Date(`${selected}T00:00:00Z`);
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(selected) && !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === selected;
+    const end = valid ? selected : today;
+    return [end.slice(0, 7) + '-01', end];
+  }
+
+  function filterReminderRows(rows, today = localDateValue()) {
+    const [start, end] = reminderDateRange(today);
+    return rows.filter((item) => {
+      const date = String(item.reminder_at || '').slice(0, 10);
+      return (!state.reminderCategory || item.category === state.reminderCategory)
+        && date >= start && date <= end;
+    });
+  }
+
   function remindersMarkup() {
     const data = state.reminders || { reminders: [] };
-    const allReminders = data.reminders || [];
+    const loadedReminders = data.reminders || [];
+    const categories = [...new Set(loadedReminders.map((item) => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id'));
+    if (state.reminderCategory && !categories.includes(state.reminderCategory)) categories.push(state.reminderCategory);
+    const allReminders = filterReminderRows(loadedReminders);
+    const [periodStart, periodEnd] = reminderDateRange();
+    const displayDate = (date) => date.split('-').reverse().join('/');
+    const filtersActive = loadedReminders.length > 0 || state.reminderCategory || state.reminderFilter !== 'all';
+    const controls = `<div class="reminder-filters">
+      <div class="field"><label for="reminder-category">Kategori</label><select class="input" id="reminder-category" data-reminder-control="category"><option value="">Semua kategori</option>${categories.map((category) => `<option value="${escapeHtml(category)}"${state.reminderCategory === category ? ' selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select></div>
+      <div class="field"><label for="reminder-period">Periode sampai tanggal</label><input class="input" id="reminder-period" data-reminder-control="period" type="date" lang="id" required value="${escapeHtml(periodEnd)}" aria-describedby="reminder-period-note"></div>
+      <button class="btn btn-secondary" type="button" data-reminder-reset>Reset filter</button>
+      <p class="form-note reminder-filter-note" id="reminder-period-note" role="status">Jadwal ${displayDate(periodStart)} – ${displayDate(periodEnd)} (termasuk tanggal akhir). Ringkasan mengikuti kategori dan periode.${loadedReminders.length >= 1000 ? ' Filter berlaku pada maksimal 1.000 pengingat yang dimuat.' : ''}</p>
+    </div>`;
     const pending = allReminders.filter((item) => item.status === 'pending').length;
     const done = allReminders.filter((item) => item.status === 'done').length;
     const reminders = state.reminderFilter === 'all' ? allReminders : allReminders.filter((item) => item.status === state.reminderFilter);
@@ -1910,10 +1953,10 @@
     return `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> agenda rumah</span><h1>Pengingat</h1><p>Biar hal kecil yang penting nggak kelewat.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="open-import" data-import-type="reminders">${icon('upload')} Import Excel</button><button class="btn" type="button" data-action="open-reminder">${icon('plus')} Buat pengingat</button></div></div>
       <div class="grid reminder-summary-grid">
         <article class="card reminder-stat"><span class="reminder-stat-icon">${icon('bell')}</span><span><strong>${pending}</strong><span>Pengingat aktif</span></span></article>
-        <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${reminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
+        <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${allReminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon coral">${icon('check')}</span><span><strong>${done}</strong><span>Selesai · ${total} total</span></span></article>
       </div>
-      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Aktifkan Google Kalender otomatis di Pengaturan untuk reminder baru. Tombol kirim Google mencoba lagi ke akun terhubung; ikon kalender membuka formulir manual (bisa membuat duplikat). Perubahan/hapus belum disinkronkan.</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div><div class="reminder-list-page">${rows || emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell')}</div></article>`;
+      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Aktifkan Google Kalender otomatis di Pengaturan untuk reminder baru. Tombol kirim Google mencoba lagi ke akun terhubung; ikon kalender membuka formulir manual (bisa membuat duplikat). Perubahan/hapus belum disinkronkan.</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div>${controls}<p class="reminder-result-count" aria-live="polite">Menampilkan ${reminders.length} dari ${total} pengingat sesuai kategori dan periode</p><div class="reminder-list-page">${rows || (filtersActive ? emptyState('Tidak ada pengingat yang cocok', 'Coba ubah kategori, periode, atau reset filter.', 'bell') : emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell'))}</div></article>`;
   }
 
   function reminderItem(item) {
