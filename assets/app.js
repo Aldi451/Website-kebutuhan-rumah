@@ -6,18 +6,13 @@
   const appRoot = document.getElementById('app');
   const modalRoot = document.getElementById('modal-root');
   const toastRoot = document.getElementById('toast-root');
-  function readLoginTheme() {
-    try { return window.localStorage.getItem('household-login-theme') === 'dark' ? 'dark' : 'light'; }
-    catch { return 'light'; }
-  }
-  function syncBrowserThemeColor(theme) {
+  function syncBrowserThemeColor() {
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = theme === 'dark' ? '#101923' : '#f8fafb';
+    if (meta) meta.content = '#f8fafb';
   }
   const state = {
     user: boot.user,
     csrf: boot.csrf,
-    loginTheme: readLoginTheme(),
     page: 'dashboard',
     dashboard: null,
     finance: null,
@@ -1441,11 +1436,9 @@
   }
 
   function renderLogin() {
-    const isNight = state.loginTheme === 'dark';
-    syncBrowserThemeColor(state.loginTheme);
+    syncBrowserThemeColor();
     appRoot.innerHTML = `
-      <main class="login-page" data-theme="${isNight ? 'dark' : 'light'}">
-        <button class="login-theme-toggle" type="button" data-action="toggle-login-theme" aria-label="${isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam'}" aria-pressed="${isNight}" title="${isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam'}">${icon(isNight ? 'sun' : 'moon')}<span>${isNight ? 'Mode biasa' : 'Mode malam'}</span></button>
+      <main class="login-page" data-theme="light">
         <section class="login-card" aria-labelledby="login-title">
           <h1 id="login-title" class="sr-only">Masuk</h1>
           <p class="login-caption">Masuk untuk melanjutkan.</p>
@@ -1459,25 +1452,8 @@
       </main>`;
   }
 
-  function setLoginTheme(theme) {
-    state.loginTheme = theme === 'dark' ? 'dark' : 'light';
-    syncBrowserThemeColor(state.loginTheme);
-    try { window.localStorage.setItem('household-login-theme', state.loginTheme); } catch { /* optional preference */ }
-    const loginPage = appRoot.querySelector('.login-page');
-    if (!loginPage) return;
-    const isNight = state.loginTheme === 'dark';
-    loginPage.dataset.theme = state.loginTheme;
-    const button = loginPage.querySelector('[data-action="toggle-login-theme"]');
-    if (button) {
-      button.innerHTML = `${icon(isNight ? 'sun' : 'moon')}<span>${isNight ? 'Mode biasa' : 'Mode malam'}</span>`;
-      button.setAttribute('aria-label', isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam');
-      button.setAttribute('aria-pressed', String(isNight));
-      button.title = isNight ? 'Gunakan mode biasa' : 'Gunakan mode malam';
-    }
-  }
-
   function renderShell() {
-    syncBrowserThemeColor('light');
+    syncBrowserThemeColor();
     const dateText = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: appTimeZone }).format(new Date());
     const mobileItems = NAV_ITEMS.filter((item) => !item.admin || state.user?.role === 'admin').filter((item) => item.id !== 'members' || state.user?.role === 'admin');
     const mobileColumns = mobileItems.length;
@@ -1488,7 +1464,6 @@
           <p class="side-label">Menu utama</p>
           <nav class="nav-list" aria-label="Navigasi utama">${NAV_ITEMS.map((item) => navLink(item)).join('')}<button class="nav-link${state.page === 'settings' ? ' active' : ''}" type="button" data-page="settings">${icon('settings')}<span>Pengaturan</span></button></nav>
           <div class="sidebar-spacer"></div>
-          <div class="sidebar-tip"><span class="tip-spark">${icon('spark')}</span><strong>Rumah lebih terencana</strong><p>Catat sedikit demi sedikit. Biar akhir bulan nggak kaget.</p></div>
           <div class="sidebar-user"><span class="avatar">${escapeHtml(initials(state.user?.name))}</span><span class="user-meta"><strong>${escapeHtml(state.user?.name || 'Pengguna')}</strong><span>${state.user?.role === 'admin' ? 'Admin rumah' : 'Anggota rumah'}</span></span><button class="icon-button" data-action="logout" type="button" aria-label="Keluar">${icon('logout')}</button></div>
         </aside>
         <main class="main-area">
@@ -1687,7 +1662,7 @@
         </div>
       </div>
       <div class="grid lower-grid">
-        <article class="card list-card"><div class="card-head"><div><h2 class="card-title">Transaksi terbaru</h2><p class="card-subtitle">Catatan keuangan bersama</p></div><button class="btn-link" type="button" data-page="finance">Semua transaksi ${icon('arrowRight')}</button></div><div class="transaction-list">${transactionRows || emptyState('Belum ada transaksi', 'Tambahkan catatan pertama untuk mulai melihat arus kas rumah.', 'receipt')}</div></article>
+        <article class="card list-card"><div class="card-head"><div><h2 class="card-title">Transaksi bulan ini</h2><p class="card-subtitle">7 transaksi terbaru pada bulan berjalan</p></div><button class="btn-link" type="button" data-page="finance">Semua transaksi ${icon('arrowRight')}</button></div><div class="transaction-list">${transactionRows || emptyState('Belum ada transaksi bulan ini', 'Riwayat bulan lain tetap tersedia di menu Keuangan.', 'receipt')}</div></article>
         <article class="card list-card"><div class="card-head"><div><h2 class="card-title">Pengingat mendatang</h2><p class="card-subtitle">${pending} agenda masih aktif</p></div><button class="btn-link" type="button" data-page="reminders">Lihat semua ${icon('arrowRight')}</button></div><div class="reminder-list">${reminderRows || emptyState('Agenda masih kosong', 'Buat pengingat kecil agar hal penting tidak terlewat.', 'bell')}</div></article>
       </div>`;
   }
@@ -1946,6 +1921,7 @@
     </div>`;
     const pending = allReminders.filter((item) => item.status === 'pending').length;
     const done = allReminders.filter((item) => item.status === 'done').length;
+    const cancelled = allReminders.filter((item) => item.status === 'cancel').length;
     const reminders = state.reminderFilter === 'all' ? allReminders : allReminders.filter((item) => item.status === state.reminderFilter);
     const total = allReminders.length;
     const rows = reminders.map((item) => reminderItem(item)).join('');
@@ -1956,7 +1932,7 @@
         <article class="card reminder-stat"><span class="reminder-stat-icon blue">${icon('calendar')}</span><span><strong>${allReminders.filter((item) => item.status === 'pending' && String(item.reminder_at) >= `${localDateValue()} 00:00:00`).length}</strong><span>Agenda berikutnya</span></span></article>
         <article class="card reminder-stat"><span class="reminder-stat-icon coral">${icon('check')}</span><span><strong>${done}</strong><span>Selesai · ${total} total</span></span></article>
       </div>
-      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Aktifkan Google Kalender otomatis di Pengaturan untuk reminder baru. Tombol kirim Google mencoba lagi ke akun terhubung; ikon kalender membuka formulir manual (bisa membuat duplikat). Perubahan/hapus belum disinkronkan.</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}</div></div>${controls}<p class="reminder-result-count" aria-live="polite">Menampilkan ${reminders.length} dari ${total} pengingat sesuai kategori dan periode</p><div class="reminder-list-page">${rows || (filtersActive ? emptyState('Tidak ada pengingat yang cocok', 'Coba ubah kategori, periode, atau reset filter.', 'bell') : emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell'))}</div></article>`;
+      <article class="card"><div class="reminder-toolbar"><div><h2 class="card-title">Daftar pengingat</h2><p class="card-subtitle">Aktifkan Google Kalender otomatis di Pengaturan untuk reminder baru. Tombol kirim Google mencoba lagi ke akun terhubung; ikon kalender membuka formulir manual (bisa membuat duplikat). Perubahan/hapus belum disinkronkan.</p></div><div class="filter-tabs">${tab('all', 'Semua', null)}${tab('pending', 'Aktif', pending)}${tab('done', 'Selesai', done)}${tab('cancel', 'Cancel', cancelled)}</div></div>${controls}<p class="reminder-result-count" aria-live="polite">Menampilkan ${reminders.length} dari ${total} pengingat sesuai kategori dan periode</p><div class="reminder-list-page">${rows || (filtersActive ? emptyState('Tidak ada pengingat yang cocok', 'Coba ubah kategori, periode, atau reset filter.', 'bell') : emptyState(state.reminderFilter === 'done' ? 'Belum ada yang selesai' : 'Belum ada pengingat', 'Tambahkan agenda seperti ganti oli, bayar tagihan, atau servis rumah.', 'bell'))}</div></article>`;
   }
 
   function reminderItem(item) {
@@ -1967,14 +1943,16 @@
     const [year, month, day] = date.split('-').map(Number);
     const monthShort = month ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15))) : '';
     const isDone = item.status === 'done';
+    const isCancelled = item.status === 'cancel';
+    const isPending = item.status === 'pending';
     // Pengingat sepanjang hari baru disebut lewat jadwal setelah tanggalnya berlalu.
-    const isOverdue = !isDone && (allDay ? date < localDateValue() : `${date} ${time}` < `${localDateValue()} ${localDateTimeValue().slice(11)}`);
+    const isOverdue = isPending && (allDay ? date < localDateValue() : `${date} ${time}` < `${localDateValue()} ${localDateTimeValue().slice(11)}`);
     const canManage = canManageEntity('reminder', item);
     const proof = proofButton('reminder', item, { compact: true, alwaysShow: canManage });
     const thumb = item.attachment ? `<button class="reminder-thumb" type="button" data-action="open-proof" data-entity="reminder" data-id="${Number(item.id)}" aria-label="Lihat bukti gambar"><img src="${escapeHtml(item.attachment.url)}" alt="Bukti ${escapeHtml(item.title)}" loading="lazy"></button>` : '';
     const sendButton = `<button class="send-button" type="button" data-action="send-reminder" data-id="${Number(item.id)}" aria-label="Kirim pengingat ini ke WhatsApp sekarang" title="Kirim ke WhatsApp sekarang">${icon('send')}</button>`;
     const editButton = canManage ? `<button class="edit-button" type="button" data-action="edit-reminder" data-id="${Number(item.id)}" aria-label="Ubah pengingat" title="Ubah pengingat">${icon('edit')}</button>` : '';
-    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${!isDone && canManage ? `<button class="btn btn-secondary btn-small" type="button" data-action="google-send" data-id="${Number(item.id)}" aria-label="Kirim atau coba lagi ke Google Kalender terhubung" title="Kirim / coba lagi ke Google Kalender terhubung">Google ↻</button>` : ''}${!isDone ? `<button class="edit-button" type="button" data-action="calendar-reminder" data-id="${Number(item.id)}" aria-label="Tambahkan ke Google Kalender" title="Buka Google Kalender">${icon('calendar')}</button>` : ''}${sendButton}${editButton}<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone ? 'repeat' : 'check')}</button>${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
+    return `<div class="reminder-item"><span class="reminder-date-box"><small>${escapeHtml(monthShort)}</small><strong>${escapeHtml(day || '—')}</strong><span${allDay ? ' class="all-day"' : ''}>${escapeHtml(allDay ? 'Seharian' : time)}</span></span>${thumb}<span class="reminder-copy"><h3>${escapeHtml(item.title)}</h3>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<span class="reminder-meta"><span class="tag">${escapeHtml(item.category || 'Lainnya')}</span><span class="byline">Dibuat ${escapeHtml(item.created_by_name || 'anggota rumah')}</span>${allDay ? '<span class="status-pill status-allday">Tanpa jam</span>' : ''}${isCancelled ? '<span class="status-pill status-cancel">Cancel</span>' : isDone ? '<span class="status-pill status-done">Selesai</span>' : isOverdue ? '<span class="status-pill status-overdue">Lewat jadwal</span>' : '<span class="status-pill">Akan datang</span>'}</span></span><span class="reminder-actions">${proof}${isPending && canManage ? `<button class="btn btn-secondary btn-small" type="button" data-action="google-send" data-id="${Number(item.id)}" aria-label="Kirim atau coba lagi ke Google Kalender terhubung" title="Kirim / coba lagi ke Google Kalender terhubung">Google ↻</button>` : ''}${isPending ? `<button class="edit-button" type="button" data-action="calendar-reminder" data-id="${Number(item.id)}" aria-label="Tambahkan ke Google Kalender" title="Buka Google Kalender">${icon('calendar')}</button>` : ''}${!isCancelled ? sendButton : ''}${editButton}${!isCancelled && canManage ? `<button class="btn btn-secondary btn-small" type="button" data-action="cancel-reminder" data-id="${Number(item.id)}">Cancel</button>` : ''}${!isCancelled || canManage ? `<button class="check-button" type="button" data-action="toggle-reminder" data-id="${Number(item.id)}" aria-label="${isDone || isCancelled ? 'Aktifkan lagi' : 'Tandai selesai'}">${icon(isDone || isCancelled ? 'repeat' : 'check')}</button>` : ''}${canManage ? `<button class="delete-button" type="button" data-action="delete-reminder" data-id="${Number(item.id)}" aria-label="Hapus pengingat">${icon('trash')}</button>` : ''}</span></div>`;
   }
 
   function membersMarkup() {
@@ -1991,7 +1969,7 @@
     if (state.user?.role !== 'admin') return '';
     const g = state.settings?.google_calendar || {};
     const callback = g.redirect_uri || `${window.location.origin}/api.php?action=google/callback`;
-    return `<section class="card settings-card" style="grid-column:1/-1"><div class="card-head"><div><h2 class="card-title">Google Kalender otomatis</h2><p class="settings-description">Simpan reminder baru di website → agenda dibuat di kalender utama akun Google yang dihubungkan.</p></div>${icon('calendar')}</div>
+    return `<section class="card settings-card" style="grid-column:1/-1"><div class="card-head"><div><h2 class="card-title">Google Kalender otomatis</h2><p class="settings-description">Simpan reminder baru di website → agenda dibuat di kalender utama akun Google yang dihubungkan.</p></div></div>
       <div class="connection-banner${g.connected ? '' : ' disconnected'}">${g.connected ? 'Akun terhubung' : 'Belum terhubung'} · ${g.enabled ? 'Otomatis diaktifkan' : 'Otomatis nonaktif'}</div>
       ${g.last_error ? `<p class="error-text">${escapeHtml(g.last_error)}</p>` : ''}
       <form data-form="google-save" class="form-grid">
@@ -2218,9 +2196,9 @@
     } catch (error) { showToast(error.message, 'error'); }
   }
 
-  async function toggleReminder(id) {
+  async function toggleReminder(id, status) {
     try {
-      const result = await api('reminder/toggle', { id: Number(id) });
+      const result = await api('reminder/toggle', { id: Number(id), ...(status ? {status} : {}) });
       showToast(result.message);
       state.dashboard = null;
       state.reminders = null;
@@ -2269,8 +2247,7 @@
       return;
     }
     const action = actionButton.dataset.action;
-    if (action === 'toggle-login-theme') setLoginTheme(state.loginTheme === 'dark' ? 'light' : 'dark');
-    else if (action === 'open-import') openImportModal(actionButton.dataset.importType);
+    if (action === 'open-import') openImportModal(actionButton.dataset.importType);
     else if (action === 'download-import-template') downloadImportTemplate(actionButton.dataset.importType);
     else if (action === 'copy-import-sample') await copyImportSample();
     else if (action === 'read-import-clipboard') await pasteFromClipboard();
@@ -2342,6 +2319,9 @@
     else if (action === 'retry') refreshPage(true);
     else if (action === 'delete-transaction') deleteTransaction(actionButton.dataset.id);
     else if (action === 'delete-reminder') deleteReminder(actionButton.dataset.id);
+    else if (action === 'cancel-reminder') {
+      if (window.confirm('Batalkan pengingat ini? Data tetap tersimpan. Agenda di Google Kalender tidak otomatis dihapus.')) toggleReminder(actionButton.dataset.id, 'cancel');
+    }
     else if (action === 'toggle-reminder') toggleReminder(actionButton.dataset.id);
     else if (action === 'reset-member-password') openResetPasswordModal(actionButton.dataset.id, actionButton.dataset.name || 'anggota');
     else if (action === 'whatsapp-test') {

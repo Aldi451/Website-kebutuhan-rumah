@@ -1,3 +1,21 @@
+# Update transaksi dashboard bulan berjalan
+
+Daftar transaksi dashboard kini hanya menampilkan maksimal 7 transaksi terbaru pada bulan/tahun berjalan, berdasarkan tanggal transaksi dan zona waktu aplikasi. Bulan kosong menampilkan pesan khusus tanpa mencampur riwayat bulan lain. Saldo sepanjang waktu dan riwayat Keuangan tidak berubah.
+
+Perubahan tambahan ini ada di `api.php`, `assets/app.js`, dan `index.php` (versi cache). Paket tetap mencakup fitur Cancel di bawah. Tidak perlu migrasi database. Tes dashboard bulan berjalan, laporan, keamanan/Cancel API, dan filter pengingat lulus lokal.
+
+---
+
+# Update status Cancel pengingat
+
+Timpa `api.php`, `index.php`, `assets/app.js`, dan `assets/style.css` untuk fitur Cancel pada instalasi yang sudah mengikuti update sebelumnya. ZIP tetap kumulatif. Tidak ada perubahan config/database atau migrasi.
+
+Pembuat/admin bisa Cancel dan mengaktifkan lagi. Filter Cancel mengikuti kategori/periode. Cancel tidak aktif, tidak diproses cron, dan tidak dapat dikirim WhatsApp manual. Data tetap tersimpan. Agenda Google yang sudah tersimpan tidak otomatis dihapus. Riwayat notifikasi terdahulu dipertahankan saat aktif kembali.
+
+Tes: tambahan Cancel API/UI di `scripts/test-security.mjs` dan `scripts/test-reminder-filters.mjs`.
+
+---
+
 # Update filter daftar pengingat
 
 Kategori + status Aktif/Selesai kini bisa digabung dengan satu tanggal periode. Contoh 19/11/2026 menampilkan jadwal 01/11/2026 sampai 19/11/2026 (inklusif), bukan seluruh bulan atau rentang bebas. Nilai awal/reset adalah hari ini. Ada jumlah hasil dan keadaan kosong. Filter berlaku pada maksimal 1.000 pengingat yang dimuat API (peringatan muncul saat batas tercapai).

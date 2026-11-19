@@ -1,0 +1,36 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import {loadPHPRuntime,PHP,PHPRequestHandler} from '@php-wasm/universal';
+import {getPHPLoaderModule} from '@php-wasm/node-8-2';
+const php=new PHP(await loadPHPRuntime(await getPHPLoaderModule()));
+php.mkdirTree('/www/includes');php.mkdirTree('/www/storage');
+for(const file of ['api.php','includes/app.php','includes/security.php','includes/wa.php','includes/google-calendar.php']) php.writeFile('/www/'+file,fs.readFileSync(file));
+const password=randomBytes(16).toString('hex');
+php.writeFile('/www/config.php',`<?php return ['dsn'=>'sqlite:/www/storage/test.sqlite','admin_bootstrap_password'=>'${password}'];`);
+const seeded=await php.run({code:`<?php require '/www/includes/app.php';$pdo=app_db();
+$start=new DateTimeImmutable('first day of this month');
+$q=$pdo->prepare("INSERT INTO transactions (kind,title,category,amount,transaction_date,user_id,created_at) VALUES ('expense',?,'Test',10,?,1,'2020-01-01 00:00:00')");
+foreach(['first'=>$start->format('Y-m-01'),'last'=>$start->format('Y-m-t'),'previous'=>$start->modify('-1 day')->format('Y-m-d'),'next'=>$start->modify('+1 month')->format('Y-m-01'),'old-year'=>$start->modify('-1 year')->format('Y-m-01')] as $title=>$date) $q->execute([$title,$date]);
+echo $start->format('Y-m');`});
+const handler=new PHPRequestHandler({php,documentRoot:'/www',absoluteUrl:'http://localhost:8080',cookieStore:false});
+let cookie='',csrf='';
+async function request(action,data){
+ const r=await handler.request({url:'/api.php?action='+action,method:data?'POST':'GET',headers:{cookie,'Content-Type':'application/json','X-CSRF-Token':csrf},...(data?{body:new TextEncoder().encode(JSON.stringify(data))}:{})});
+ for(const c of r.headers['set-cookie']||[])if(c.startsWith('rumahku_session='))cookie=c.split(';')[0];
+ assert.equal(r.httpStatusCode,200,r.text);const result=JSON.parse(r.text);if(result.csrf)csrf=result.csrf;return result;
+}
+await request('csrf');await request('login',{username:'ALDI',password});
+let result=await request('dashboard');
+assert.equal(result.month,seeded.text);
+assert.deepEqual(result.transactions.map(t=>t.title),['last','first']);
+assert.equal(result.summary.expense,20);assert.equal(result.summary.all_expense,50);
+await php.run({code:`<?php require '/www/includes/app.php';$pdo=app_db();$q=$pdo->prepare("INSERT INTO transactions (kind,title,category,amount,transaction_date,user_id,created_at) VALUES ('income',?,'Test',1,?,1,'2020-01-01 00:00:00')");for($i=0;$i<10;$i++)$q->execute(['extra-'.$i,date('Y-m-t')]);`});
+result=await request('dashboard');assert.equal(result.transactions.length,7);
+assert.deepEqual(result.transactions.map(t=>t.title),[9,8,7,6,5,4,3].map(i=>'extra-'+i));
+assert.ok(result.transactions.every(t=>t.transaction_date.startsWith(result.month)));
+await php.run({code:`<?php require '/www/includes/app.php';app_db()->prepare('DELETE FROM transactions WHERE SUBSTR(transaction_date,1,7)=?')->execute([date('Y-m')]);`});
+result=await request('dashboard');assert.equal(result.transactions.length,0);assert.equal(result.summary.all_expense,30);
+const source=fs.readFileSync('assets/app.js','utf8');
+assert.ok(source.includes('Transaksi bulan ini'));assert.ok(source.includes('Belum ada transaksi bulan ini'));
+console.log('Dashboard month tests passed: month/year isolation, inclusive first/last days, next/previous exclusions, seven-row limit and ordering, empty month, unchanged all-time totals.');

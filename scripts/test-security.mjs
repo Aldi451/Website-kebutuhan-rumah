@@ -114,6 +114,24 @@ assert.notEqual(actualOwner.text,'1','Client user_id cannot impersonate another 
 const ownerTitle=await php.run({code:`<?php require '/www/includes/app.php';echo app_db()->query('SELECT title FROM transactions WHERE id=1')->fetchColumn();`});
 assert.equal(ownerTitle.text,'Owner fixture','Denied operations leave the owner data intact');
 
+// Cancellation is owner/admin-only, persisted, filterable and cannot be sent.
+assert.equal((await member.request('reminder/toggle',{id:1,status:'cancel'})).status,403);
+assert.equal((await a.request('reminder/toggle',{id:1,status:'unknown'})).status,422);
+assert.equal((await a.request('reminder/toggle',{id:99999,status:'cancel'})).status,404);
+assert.equal((await a.request('reminder/toggle',{id:1,status:'cancel'},{headers:{'X-CSRF-Token':''}})).status,419);
+assert.equal((await a.request('reminder/toggle',{id:1,status:'done'})).status,200);
+assert.equal((await a.request('reminder/toggle',{id:1,status:'cancel'})).status,200);
+let cancelled=(await a.request('reminders&status=cancel')).json.reminders;
+assert.equal(cancelled.length,1);assert.equal(cancelled[0].status,'cancel');
+assert.equal(cancelled[0].completed_at,null);
+assert.equal((await a.request('reminders&status=pending')).json.reminders.length,0);
+assert.equal((await a.request('reminder/send',{id:1})).status,422);
+assert.equal((await member.request('reminder/toggle',{id:1})).status,403);
+assert.equal((await a.request('reminder/toggle',{id:1})).status,200);
+assert.equal((await a.request('reminders&status=pending')).json.reminders.length,1);
+assert.equal((await a.request('reminders&status=cancel')).json.reminders.length,0);
+console.log('Cancel API tests passed: authorization, CSRF, validation, persistence, filter, delivery rejection and reactivation.');
+
 const users = (await a.request('users/list')).json;
 const memberId = users.users.find(u=>u.username==='testmember').id;
 assert.equal((await a.request('users/reset-password',{id:memberId,password:'reset-member-password'})).status,200);
