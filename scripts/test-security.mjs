@@ -132,6 +132,19 @@ assert.equal((await a.request('reminders&status=pending')).json.reminders.length
 assert.equal((await a.request('reminders&status=cancel')).json.reminders.length,0);
 console.log('Cancel API tests passed: authorization, CSRF, validation, persistence, filter, delivery rejection and reactivation.');
 
+// Editing persists fields without silently changing pending/done/cancel status.
+for (const status of ['pending','done','cancel']) {
+  assert.equal((await a.request('reminder/toggle',{id:1,status})).status,200);
+  const payload={id:1,title:'Edited '+status,category:'Tagihan',reminder_date:'2026-12-19',reminder_time:status==='done'?'':'10:30',note:'Updated fixture'};
+  assert.equal((await a.request('reminder/update',payload)).status,200);
+  const saved=(await a.request('reminders')).json.reminders.find(r=>r.id===1);
+  assert.equal(saved.title,payload.title);assert.equal(saved.category,'Tagihan');assert.equal(saved.note,'Updated fixture');
+  assert.equal(saved.reminder_at.slice(0,10),'2026-12-19');assert.equal(saved.has_time,status==='done'?0:1);
+  assert.equal(saved.status,status);
+  assert.equal((await member.request('reminder/update',payload)).status,403);
+}
+console.log('Reminder edit persistence tests passed for all statuses; other-member edits denied.');
+
 const users = (await a.request('users/list')).json;
 const memberId = users.users.find(u=>u.username==='testmember').id;
 assert.equal((await a.request('users/reset-password',{id:memberId,password:'reset-member-password'})).status,200);
