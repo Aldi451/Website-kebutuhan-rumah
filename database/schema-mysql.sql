@@ -108,3 +108,12 @@ CREATE TABLE IF NOT EXISTS wa_contacts (
 -- Saat tabel "users" masih kosong, aplikasi otomatis membuat akun:
 --   Username: ALDI. Password diambil dari admin_bootstrap_password di config.php (12–72 byte).
 -- Password disimpan sebagai hash, jadi tidak bisa ditulis manual di file SQL.
+
+-- Master kategori; data lama di-backfill oleh aplikasi pada startup berikutnya.
+CREATE TABLE IF NOT EXISTS categories (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    category_type VARCHAR(12) NOT NULL,
+    name VARCHAR(40) NOT NULL,
+    name_key VARCHAR(64) NOT NULL,
+    UNIQUE (category_type, name_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

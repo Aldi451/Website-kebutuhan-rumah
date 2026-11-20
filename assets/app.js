@@ -2073,6 +2073,21 @@
       </div>`;
   }
 
+  async function loadCategoryLookup(listId, type) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    list.dataset.categoryType = type;
+    try {
+      const result = await api('categories/list');
+      if (document.getElementById(listId) !== list || list.dataset.categoryType !== type) return;
+      list.innerHTML = result.categories.filter((item) => item.category_type === type)
+        .map((item) => `<option value="${escapeHtml(item.name)}"></option>`).join('');
+    } catch (error) {
+      // Keep the form usable for manually entered categories; never erase typed text.
+      showToast('Lookup kategori belum termuat. Kategori tetap bisa diketik manual.', 'error');
+    }
+  }
+
   function openTransactionModal(kind = 'expense', record = null) {
     const editing = !!record;
     const selected = editing ? (record.kind === 'income' ? 'income' : 'expense') : (kind === 'income' ? 'income' : 'expense');
@@ -2090,11 +2105,12 @@
         <div class="field full-span"><label for="tx-kind">Jenis transaksi</label><select class="select" id="tx-kind" name="kind" data-transaction-kind><option value="expense"${selected === 'expense' ? ' selected' : ''}>Uang keluar</option><option value="income"${selected === 'income' ? ' selected' : ''}>Uang masuk</option></select></div>
         <div class="field full-span"><label for="tx-title">Nama transaksi</label><input class="input" id="tx-title" name="title" type="text" maxlength="100" value="${escapeHtml(editing ? record.title : '')}" placeholder="Contoh: Belanja mingguan" required></div>
         <div class="field"><label for="tx-amount">Nominal</label><input class="input" id="tx-amount" name="amount" type="number" min="1" step="1" value="${editing ? Number(record.amount) : ''}" placeholder="150000" required></div>
-        <div class="field"><label for="tx-category">Kategori</label><select class="select" id="tx-category" name="category">${categoryOptions}</select></div>
+        <div class="field"><label for="tx-category">Kategori</label><input class="input" id="tx-category" name="category" list="tx-category-options" value="${escapeHtml(currentCategory || baseCategories[0])}" maxlength="40" required autocomplete="off"><datalist id="tx-category-options">${categoryOptions}</datalist><p class="form-note">Pilih kategori atau ketik kategori baru. Tersimpan ke lookup setelah transaksi disimpan.</p></div>
         <div class="field full-span"><label for="tx-date">Tanggal</label><input class="input" id="tx-date" name="date" type="date" value="${escapeHtml(editing ? String(record.transaction_date || '').slice(0, 10) : localDateValue())}" required></div>
         <div class="field full-span"><label for="tx-note">Catatan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="tx-note" name="note" maxlength="500" placeholder="Tambahkan detail kalau perlu…">${escapeHtml(editing ? record.note || '' : '')}</textarea></div>
         ${receiptFieldMarkup('tx-receipt', editing ? record.attachment : null)}
       </div><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('check')} ${editing ? 'Simpan perubahan' : 'Simpan transaksi'}</button></div></form>`);
+    loadCategoryLookup('tx-category-options', selected);
   }
 
   function openReminderModal(record = null) {
@@ -2121,11 +2137,12 @@
           <div class="time-input-row"><input class="input" id="reminder-time" name="reminder_time" type="time" value="${escapeHtml(storedTime)}" data-reminder-time aria-describedby="reminder-time-note"><button class="btn btn-secondary btn-small" type="button" data-action="clear-reminder-time"${storedTime ? '' : ' hidden'}>Tanpa jam</button></div>
           <p class="form-note" id="reminder-time-note" data-reminder-time-note></p>
         </div>
-        <div class="field full-span"><label for="reminder-category">Kategori</label><select class="select" id="reminder-category" name="category">${categoryOptions}</select></div>
+        <div class="field full-span"><label for="reminder-category">Kategori</label><input class="input" id="reminder-edit-category" name="category" list="reminder-category-options" value="${escapeHtml(currentCategory)}" maxlength="40" required autocomplete="off"><datalist id="reminder-category-options">${categoryOptions}</datalist><p class="form-note">Pilih kategori atau ketik kategori baru. Tersimpan ke lookup setelah pengingat disimpan.</p></div>
         <div class="field full-span"><label for="reminder-note">Catatan tambahan <span class="text-muted" style="font-weight:400">(opsional)</span></label><textarea class="textarea" id="reminder-note" name="note" maxlength="500" placeholder="Contoh: Bengkel langganan dekat rumah">${escapeHtml(editing ? record.note || '' : '')}</textarea></div>
         ${receiptFieldMarkup('reminder-receipt', editing ? record.attachment : null)}
       </div><p class="form-note">Pengingat akan terlihat oleh semua anggota rumah. Jika notifikasi WhatsApp terhubung, kabarnya juga dikirim ke WhatsApp.</p><p class="error-text" data-form-error hidden></p><div class="modal-footer"><button class="btn btn-secondary" type="button" data-action="close-modal">Batal</button><button class="btn" type="submit">${icon('bell')} ${editing ? 'Simpan perubahan' : 'Simpan pengingat'}</button></div></form>`);
     syncReminderTimeHint();
+    loadCategoryLookup('reminder-category-options', 'reminder');
   }
 
   // Menjelaskan apa arti kolom jam yang kosong, supaya tidak ada yang bingung.
@@ -2438,11 +2455,7 @@
     if (!event.target.matches('[data-transaction-kind]')) return;
     const category = document.getElementById('tx-category');
     if (!category) return;
-    const options = event.target.value === 'income' ? ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'] : ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'];
-    // Kategori yang sedang terpilih tetap dipertahankan walau jenisnya diganti.
-    const current = category.value;
-    if (current && !options.includes(current)) options.push(current);
-    category.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}"${value === current ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('');
+    loadCategoryLookup('tx-category-options', event.target.value);
   });
 
   document.addEventListener('submit', async (event) => {

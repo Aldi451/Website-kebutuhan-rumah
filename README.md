@@ -516,3 +516,22 @@ API `reminder/toggle` menerima status opsional `pending`, `done`, `cancel`; tanp
 ### Transaksi dashboard bulan berjalan
 
 Daftar **Transaksi bulan ini** hanya mengambil transaksi bertanggal dalam bulan/tahun berjalan menurut zona waktu server aplikasi, dari tanggal 1 hingga akhir bulan. Maksimal 7 baris terbaru, urut tanggal lalu ID menurun. Transaksi bulan lain tetap tersimpan dan tersedia di Keuangan; jika bulan berjalan kosong, dashboard tidak mengambil pengganti dari bulan lain. Saldo sepanjang waktu dan grafik historis tidak diubah. Tes: `node scripts/test-dashboard-month.mjs`.
+
+## Master kategori dan input manual
+
+Form tambah/edit transaksi dan pengingat sekarang menggunakan input kategori dengan lookup (datalist browser). Pilih saran yang ada, atau ketik nama baru. Kategori baru masuk master ketika catatan disimpan, bukan ketika baru diketik. Lookup diambil ulang saat form dibuka sehingga kategori yang pernah digunakan tersedia di sesi/perangkat berikutnya. Ganti jenis transaksi untuk melihat lookup Uang Masuk atau Uang Keluar; teks yang sedang diketik tidak dihapus.
+
+Tabel `categories`:
+- `id`: primary key otomatis.
+- `category_type`: `income`, `expense`, atau `reminder` (field pembeda jenis kategori).
+- `name`: nama tampilan, maksimal 40 byte mengikuti batas kategori lama.
+- `name_key`: SHA-256 nama yang dirapikan spasi dan dijadikan huruf kecil; bukan enkripsi.
+- `UNIQUE(category_type, name_key)` mencegah duplikat dalam jenis yang sama, termasuk insert bersamaan. Nama yang sama pada jenis berbeda diperbolehkan karena lookup-nya berbeda. Huruf non-ASCII memakai case-fold lowercase bila ekstensi mbstring tersedia; tanpa mbstring lowercase hanya ASCII.
+
+Aplikasi membuat tabel secara otomatis. Backfill satu kali membaca seluruh kategori transaksi/pengingat lama, bukan hanya 1.000 baris daftar UI, lalu menambah kategori bawaan. Penanda `categories_migrated_v1` disimpan hanya setelah backfill berhasil. Nama kategori pada catatan historis tidak diubah massal: varian tulisan lama tetap ada di laporan lama, tetapi master lookup tidak menggandakan nama yang ekuivalen. Catatan baru/edit/impor menggunakan nama canonical master. Tidak ditambahkan foreign key/category_id pada catatan lama; kolom `category` tetap kompatibel dengan laporan dan backup sebelumnya. Master kategori ikut backup SQL.
+
+Endpoint `categories/list` memerlukan login. Penambahan kategori mengikuti hak akses simpan/edit catatan dan CSRF yang sudah ada. Tidak ada hapus/rename master pada tahap ini. Jika lookup gagal dimuat, pengguna diberi pesan dan tetap bisa mengetik manual.
+
+**Pemasangan:** backup database terlebih dahulu, upload `includes/app.php`, `api.php`, `assets/app.js`, dan `index.php` bersama-sama (atau ZIP kumulatif). Akun database membutuhkan izin CREATE/INSERT/SELECT untuk master dan penanda migrasi. Jangan mengimpor ulang seluruh dump/schema ke database produksi untuk fitur ini. Skrip SQL di `database/` juga mencantumkan tabel baru untuk instalasi manual. Tes lokal menggunakan SQLite/PHP-WASM; migrasi dan konkurensi MySQL hosting tetap perlu verifikasi staging.
+
+Tes baru: `node scripts/test-categories.mjs` dan `node scripts/test-category-ui.mjs` (backfill idempotent, batas scope, deduplikasi, create/edit/import, invalid input, backup, input manual, escaping, serta respons lookup terlambat).

@@ -132,6 +132,10 @@ try {
         app_json(['ok' => true, 'user' => ['id' => $user['id'], 'username' => $user['username'], 'name' => $user['display_name'], 'role' => $user['role']], 'csrf' => $_SESSION['csrf_token']]);
     }
 
+    if ($action === 'categories/list' && $method === 'GET') {
+        app_json(['ok' => true, 'categories' => $pdo->query('SELECT id, category_type, name FROM categories ORDER BY category_type, name')->fetchAll()]);
+    }
+
     if ($action === 'dashboard' && $method === 'GET') {
         $month = date('Y-m');
         $totals = $pdo->prepare('SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE SUBSTR(transaction_date, 1, 7) = :month GROUP BY kind');
@@ -659,6 +663,7 @@ try {
         $insert = $pdo->prepare('INSERT INTO transactions (kind, title, category, amount, transaction_date, note, user_id, created_at) VALUES (:kind, :title, :category, :amount, :date, :note, :user, :created)');
         $pdo->beginTransaction();
         try {
+            $category = app_category_name($pdo, $kind, $category);
             $insert->execute([
                 ':kind' => $kind, ':title' => $title, ':category' => $category,
                 ':amount' => $amount, ':date' => $date, ':note' => $note === '' ? null : $note,
@@ -717,6 +722,7 @@ try {
         if (!in_array($kind, ['income', 'expense'], true) || $title === '' || strlen($title) > 100 || $category === '' || strlen($category) > 40 || $amount === false || $amount < 1 || $amount > 999999999999 || !app_valid_date($date) || strlen($note) > 500) {
             app_json(['ok' => false, 'message' => 'Periksa lagi detail transaksi. Nominal harus lebih dari Rp 0.'], 422);
         }
+        $category = app_category_name($pdo, $kind, $category);
         $update = $pdo->prepare('UPDATE transactions SET kind = :kind, title = :title, category = :category, amount = :amount, transaction_date = :date, note = :note WHERE id = :id');
         $update->execute([
             ':kind' => $kind, ':title' => $title, ':category' => $category,
@@ -770,6 +776,7 @@ try {
         $pdo->beginTransaction();
         try {
             foreach ($validRows as $row) {
+                $row['category'] = app_category_name($pdo, $row['kind'], $row['category']);
                 $insert->execute([
                     ':kind' => $row['kind'], ':title' => $row['title'], ':category' => $row['category'],
                     ':amount' => $row['amount'], ':date' => $row['date'], ':note' => $row['note'] === '' ? null : $row['note'],
@@ -857,6 +864,7 @@ try {
         $insert = $pdo->prepare('INSERT INTO reminders (title, category, reminder_at, has_time, note, status, created_by, created_at) VALUES (:title, :category, :at, :has_time, :note, :status, :user, :created)');
         $pdo->beginTransaction();
         try {
+            $category = app_category_name($pdo, 'reminder', $category);
             $insert->execute([
                 ':title' => $title, ':category' => $category, ':at' => $reminderAt, ':has_time' => $hasTime,
                 ':note' => $note === '' ? null : $note, ':status' => 'pending',
@@ -933,6 +941,7 @@ try {
         $pdo->beginTransaction();
         try {
             foreach ($validRows as $row) {
+                $row['category'] = app_category_name($pdo, 'reminder', $row['category']);
                 $insert->execute([
                     ':title' => $row['title'], ':category' => $row['category'], ':at' => $row['reminder_at'], ':has_time' => $row['has_time'],
                     ':note' => $row['note'] === '' ? null : $row['note'], ':status' => 'pending',
@@ -975,6 +984,7 @@ try {
         // Kalau masih di masa lalu, status "sudah dikabari" dibiarkan supaya tidak mengirim ulang.
         $timeChanged = (string) $existing['reminder_at'] !== $reminderAt;
         $resetNotify = $timeChanged && $reminderAt > $now && (string) $existing['status'] === 'pending';
+        $category = app_category_name($pdo, 'reminder', $category);
         $update = $pdo->prepare('UPDATE reminders SET title = :title, category = :category, reminder_at = :at, has_time = :has_time, note = :note' . ($resetNotify ? ', due_notified_at = NULL' : '') . ' WHERE id = :id');
         $update->execute([
             ':title' => $title, ':category' => $category, ':at' => $reminderAt, ':has_time' => $hasTime,
