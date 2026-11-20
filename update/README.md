@@ -1,3 +1,13 @@
+# Update master kategori + input manual
+
+Form transaksi/pengingat kini menerima kategori yang diketik manual sekaligus lookup kategori terdahulu. Jenis lookup: Uang Masuk (`income`), Uang Keluar (`expense`), dan Pengingat (`reminder`). Nama kategori baru disimpan saat catatan disimpan.
+
+**Backup database dahulu.** Timpa `includes/app.php`, `api.php`, `assets/app.js`, dan `index.php` bersama-sama; paket ZIP ini tetap kumulatif. Tabel `categories` dibuat otomatis dengan field id, category_type, name, name_key dan unique constraint per jenis/nama. Backfill sekali membaca kategori lama tanpa menghapus/mengubah catatan lama; kategori bawaan juga disertakan. Tidak perlu impor ulang database. Pastikan izin database untuk CREATE/SELECT/INSERT dan penanda migrasi app_settings tersedia.
+
+Uji di staging MySQL sebelum produksi: buka form, cek kategori lama, simpan nama baru, buka ulang, coba nama dengan beda kapital/spasi, cek lookup jenis lain, dan uji backup. Tes lokal SQLite/markup dan semua regresi lulus; integrasi hosting/MySQL nyata belum diuji. Detail aturan deduplikasi dan batasan ada di README utama.
+
+---
+
 # Perbaikan visibilitas Edit pengingat
 
 Tombol Edit kini berlabel teks dan ditempatkan pertama dalam deretan aksi. Tombol aksi dapat turun baris agar tidak memaksa lebar kartu. Hak edit tetap pembuat/admin, termasuk status Aktif, Selesai, dan Cancel. Mengedit tidak mengubah status secara otomatis.

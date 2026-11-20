@@ -70,3 +70,12 @@ ALTER TABLE users ADD COLUMN phone VARCHAR(60) NOT NULL DEFAULT '';
 -- Selesai. Cek di phpMyAdmin: tabel "attachments" harus muncul bersama
 -- tabel transactions, reminders, monthly_targets, app_settings, users,
 -- dan wa_contacts (nomor bot WhatsApp).
+
+-- Master kategori; data lama di-backfill oleh aplikasi pada startup berikutnya.
+CREATE TABLE IF NOT EXISTS categories (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    category_type VARCHAR(12) NOT NULL,
+    name VARCHAR(40) NOT NULL,
+    name_key VARCHAR(64) NOT NULL,
+    UNIQUE (category_type, name_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

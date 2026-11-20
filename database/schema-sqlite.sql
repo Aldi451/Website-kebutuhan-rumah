@@ -91,3 +91,12 @@ CREATE INDEX IF NOT EXISTS attachment_lookup ON attachments (entity_type, entity
 CREATE INDEX IF NOT EXISTS transaction_date_lookup ON transactions (transaction_date);
 CREATE INDEX IF NOT EXISTS transaction_user_lookup ON transactions (user_id);
 CREATE INDEX IF NOT EXISTS reminder_due_lookup ON reminders (status, reminder_at);
+
+-- Master kategori; data lama di-backfill oleh aplikasi pada startup berikutnya.
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_type VARCHAR(12) NOT NULL,
+    name VARCHAR(40) NOT NULL,
+    name_key VARCHAR(64) NOT NULL,
+    UNIQUE (category_type, name_key)
+);

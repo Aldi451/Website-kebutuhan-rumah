@@ -121,6 +121,13 @@ function app_schema_statements(bool $mysql): array
     $blob = $mysql ? 'MEDIUMBLOB NOT NULL' : 'BLOB NOT NULL';
     $engine = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
     $statements = [];
+    $statements[] = "CREATE TABLE IF NOT EXISTS categories (
+        id {$id},
+        category_type VARCHAR(12) NOT NULL,
+        name VARCHAR(40) NOT NULL,
+        name_key VARCHAR(64) NOT NULL,
+        UNIQUE (category_type, name_key)
+    ){$engine}";
 
     $statements[] = "CREATE TABLE IF NOT EXISTS users (
         id {$id},
@@ -254,6 +261,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
     app_ensure_column($pdo, $mysql, 'users', 'phone', "VARCHAR(60) NOT NULL DEFAULT ''");
 
     app_bootstrap_admin($pdo);
+    app_migrate_categories($pdo);
 }
 
 function app_user(): ?array
@@ -963,7 +971,7 @@ function app_format_amount(mixed $amount): string
 
 function app_database_tables(): array
 {
-    return ['users', 'transactions', 'monthly_targets', 'reminders', 'attachments', 'wa_contacts', 'app_settings'];
+    return ['users', 'transactions', 'monthly_targets', 'reminders', 'attachments', 'wa_contacts', 'app_settings', 'categories'];
 }
 
 function app_database_summary(): array
@@ -1270,3 +1278,52 @@ require_once __DIR__ . '/wa.php';
 
 // Cover every public PHP entry point, including webhooks, cron and error responses.
 app_security_headers();
+
+
+/** Stable case/space key; no collation-dependent duplicate names within a type. */
+function app_category_name(PDO $pdo, string $type, string $name): string
+{
+    if (!in_array($type, ['income', 'expense', 'reminder'], true)) throw new RuntimeException('Jenis kategori tidak valid.');
+    $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+    if ($name === '' || strlen($name) > 40) throw new RuntimeException('Kategori wajib diisi, maksimal 40 byte.');
+    $key = hash('sha256', function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name));
+    $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+    $sql = $mysql
+        ? 'INSERT INTO categories (category_type, name, name_key) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name_key = VALUES(name_key)'
+        : 'INSERT INTO categories (category_type, name, name_key) VALUES (?, ?, ?) ON CONFLICT(category_type, name_key) DO NOTHING';
+    $pdo->prepare($sql)->execute([$type, $name, $key]);
+    $q = $pdo->prepare('SELECT name FROM categories WHERE category_type = ? AND name_key = ?');
+    $q->execute([$type, $key]);
+    return (string) $q->fetchColumn();
+}
+
+function app_migrate_categories(PDO $pdo): void
+{
+    $check = $pdo->query("SELECT setting_value FROM app_settings WHERE setting_key = 'categories_migrated_v1'")->fetchColumn();
+    if ($check !== false) return;
+    $pdo->beginTransaction();
+    try {
+        // Existing names take precedence over defaults; preserve records and their IDs.
+        foreach (['transactions' => 'kind', 'reminders' => null] as $table => $typeColumn) {
+            $query = $pdo->query('SELECT DISTINCT category' . ($typeColumn ? ', kind' : '') . ' FROM ' . $table . ' ORDER BY category');
+            foreach ($query->fetchAll() as $row) {
+                $type = $typeColumn ? $row['kind'] : 'reminder';
+                if (trim($row['category']) === '' || strlen($row['category']) > 40 || !in_array($type, ['income', 'expense', 'reminder'], true)) continue;
+                app_category_name($pdo, $type, $row['category']);
+            }
+        }
+        foreach ([
+            'income' => ['Gaji', 'Usaha', 'Bonus', 'Hadiah', 'Lainnya'],
+            'expense' => ['Belanja bulanan', 'Tagihan', 'Transportasi', 'Perawatan', 'Kesehatan', 'Kebutuhan rumah', 'Lainnya'],
+            'reminder' => ['Perawatan', 'Tagihan', 'Kesehatan', 'Belanja', 'Rumah', 'Lainnya'],
+        ] as $type => $names) foreach ($names as $name) app_category_name($pdo, $type, $name);
+        $sql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? "INSERT INTO app_settings (setting_key, setting_value, updated_at) VALUES ('categories_migrated_v1', '1', CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE setting_value = '1'"
+            : "INSERT OR REPLACE INTO app_settings (setting_key, setting_value, updated_at) VALUES ('categories_migrated_v1', '1', CURRENT_TIMESTAMP)";
+        $pdo->exec($sql);
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+}
