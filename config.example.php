@@ -32,6 +32,19 @@ return [
     'security_contact' => '',
     'security_contact_expires' => '',
 
+    // URL dasar publik resmi untuk menyusun alamat webhook WhatsApp dengan aman
+    // tanpa bergantung pada header Host dari klien. Contoh: 'https://anggaran.page.gd'
+    'public_base_url' => '',
+
+    // Daftar IP reverse proxy tepercaya (kosongkan kecuali hosting mendokumentasikan IP proxy tetap).
+    // Hanya bila REMOTE_ADDR cocok dengan daftar ini, X-Forwarded-Proto / CF-Visitor dipercaya.
+    'trusted_proxy_ips' => [],
+
+    // Kunci enkripsi at-rest untuk rahasia integrasi di tabel app_settings (minimal 32 karakter acak).
+    // Hasilkan dengan: php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
+    // Jangan hilangkan kunci ini; simpan salinannya terpisah dari file backup .sql.
+    'app_encryption_key' => '',
+
     // Zona waktu untuk tanggal transaksi dan reminder.
     'timezone' => 'Asia/Jakarta',
 

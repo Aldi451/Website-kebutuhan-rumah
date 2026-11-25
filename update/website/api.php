@@ -45,15 +45,18 @@ try {
         $query->execute([':username' => $username]);
         $record = $query->fetch();
         // Key known accounts by DB ID, so collation/case aliases share one limit.
-        app_limit_login($pdo, $record ? 'id:' . $record['id'] : 'missing:' . strtolower($username));
+        $accountKey = $record ? 'id:' . $record['id'] : 'missing:' . strtolower($username);
+        app_limit_login($pdo, $accountKey);
         // Also verify a dummy hash for unknown usernames to reduce timing enumeration.
         $validPassword = password_verify($password, (string) ($record['password_hash'] ?? '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.'));
         if (!$record || !$validPassword) {
+            app_record_login_failure($pdo, $accountKey);
             app_json(['ok' => false, 'message' => 'Nama pengguna atau kata sandi kurang tepat.'], 401);
         }
         if ($record['role'] === 'admin' && password_verify('admin123', (string) $record['password_hash'])) {
             app_json(['ok' => false, 'message' => 'Password admin bawaan dinonaktifkan. Pemilik hosting perlu mengisi admin_bootstrap_password (12–72 byte) di config.php, lalu login dengan password baru.'], 403);
         }
+        app_clear_login_pair($pdo, $accountKey);
         session_regenerate_id(true);
         app_bind_auth_session((string) $record['password_hash']);
         $_SESSION['user_id'] = (int) $record['id'];
@@ -109,11 +112,22 @@ try {
             exit;
         }
         $download = (string) ($_GET['download'] ?? '') === '1';
-        header('Content-Type: ' . ((string) $record['mime'] !== '' ? (string) $record['mime'] : 'image/jpeg'));
+        $allowedMimes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+        $rawMime = strtolower(trim((string) $record['mime']));
+        if (isset($allowedMimes[$rawMime])) {
+            $safeMime = $rawMime;
+            $ext = $allowedMimes[$rawMime];
+        } else {
+            $safeMime = 'application/octet-stream';
+            $ext = 'bin';
+            $download = true;
+        }
+        header('Content-Type: ' . $safeMime);
         header('Content-Length: ' . strlen($data));
         header('Cache-Control: no-store, private, no-transform');
         header('X-Content-Type-Options: nosniff');
-        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="bukti-' . $id . '.jpg"');
+        header("Content-Security-Policy: default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
+        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="bukti-' . $id . '.' . $ext . '"');
         echo $data;
         exit;
     }
@@ -813,6 +827,7 @@ try {
     }
 
     if ($action === 'target/save' && $method === 'POST') {
+        app_require_admin($user);
         $month = trim((string) ($input['month'] ?? ''));
         $amount = filter_var($input['amount'] ?? null, FILTER_VALIDATE_INT);
         if (!app_valid_month($month) || $amount === false || $amount < 1 || $amount > 999999999999) {
@@ -1052,12 +1067,15 @@ try {
         if (!$id || $id < 1) {
             app_json(['ok' => false, 'message' => 'Pengingat tidak ditemukan.'], 422);
         }
-        $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.due_notified_at, u.display_name AS created_by_name
+        $query = $pdo->prepare('SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, r.due_notified_at, u.display_name AS created_by_name
             FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.id = :id LIMIT 1');
         $query->execute([':id' => $id]);
         $reminder = $query->fetch();
         if (!$reminder) {
             app_json(['ok' => false, 'message' => 'Pengingat sudah tidak ada.'], 404);
+        }
+        if (!app_can_manage_entity($user, (int) $reminder['created_by'])) {
+            app_json(['ok' => false, 'message' => 'Hanya pembuat atau admin yang dapat mengirim pengingat ini.'], 403);
         }
         if ($reminder['status'] === 'cancel') app_json(['ok' => false, 'message' => 'Pengingat dibatalkan. Aktifkan kembali sebelum mengirim.'], 422);
         app_notification_reject_if_limited(app_notification_budget('whatsapp', 'reminder:' . $id));
@@ -1251,6 +1269,7 @@ try {
                 'attachment_count' => $summary['attachment_count'],
                 'attachment_size' => app_format_bytes((int) $summary['attachment_bytes']),
                 'tables' => $summary['tables'],
+                'secrets_encrypted' => app_encryption_key_bytes() !== null,
             ];
         }
         $whatsappBot = null;

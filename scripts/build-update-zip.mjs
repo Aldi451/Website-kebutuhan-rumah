@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = path.join(root, 'update', 'website');
 const zipPath = path.join(root, 'update', 'website-update.zip');
-const entriesToZip = ['security-contact.php', '.htaccess', 'includes/.htaccess', 'includes/app.php', 'includes/wa.php', 'includes/security.php', 'index.php', 'api.php', 'whatsapp.php', 'cron.php', 'includes/google-calendar.php', 'assets/app.js', 'assets/importer.js', 'assets/calendar.js', 'assets/clipboard-import.js', 'assets/style.css'];
+const entriesToZip = ['security-contact.php', '.htaccess', 'includes/.htaccess', 'storage/.htaccess', 'includes/app.php', 'includes/wa.php', 'includes/security.php', 'index.php', 'api.php', 'whatsapp.php', 'cron.php', 'includes/google-calendar.php', 'assets/app.js', 'assets/importer.js', 'assets/calendar.js', 'assets/clipboard-import.js', 'assets/style.css'];
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);

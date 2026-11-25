@@ -66,3 +66,40 @@ Jika memakai subdomain gratis, pastikan kamu memang memiliki akses DNS yang dipe
 - Tes HSTS lokal memakai metadata HTTPS dan pemeriksaan header; **bukan handshake TLS nyata**. Mod_headers/mod_rewrite Apache, browser cross-origin isolation, DNS, dan hosting belum diuji oleh tes WASM.
 
 Tidak ada janji bahwa skor scan akan menjadi A/100. Targetnya adalah memperbaiki kontrol yang relevan dan mendapatkan bukti retest yang dapat dipercaya.
+
+---
+
+## 6. Evaluasi laporan 24 November 2026 (`anggaran.page.gd`) & pengerasan lanjutan
+
+Referensi lanjutan: `SEC-AEV-20261124-R63` (24 Nov 2026, target `https://anggaran.page.gd`, IP `185.27.134.113`, `Server: openresty`). PDF bersifat confidential dan tidak disalin ke repository.
+
+### Temuan forensik atas hasil scanner eksternal
+
+1. **Intersepsi anti-bot `openresty` (`aes.js`) pada subdomain InfinityFree (`*.page.gd`):**
+   - Scanner otomatis tanpa engine browser menerima respons `HTTP 200` milik challenge `openresty` sebelum mencapai Apache/`.htaccess`/PHP. Hal ini dibuktikan oleh telemetri scanner yang melaporkan `HTTP 200` pada rute fiktif `/api/`, `/api/chat`, dan `/.well-known/llms.txt` yang tidak ada di kode aplikasi.
+   - Karena halaman challenge `openresty` hosting tidak menyertakan header HSTS, CSP, X-Frame-Options, `nosniff`, Referrer/Permissions-Policy, maupun COOP/CORP/COEP, vektor **#02–#06, #08, #18, dan #47–#52** dinilai `FAIL/MISSED` oleh scanner, sementara vektor aplikasi (**#09–#17, #80**) berstatus *unverified false-pass* dari sisi scanner.
+   - Challenge `aes.js` juga menghambat pemanggil server-to-server (webhook Fonnte, cron eksternal, dan Worker backup Telegram).
+2. **Batasan infrastruktur subdomain `.page.gd`:**
+   - Subdomain berbagi `page.gd` tidak dapat didaftarkan langsung ke Cloudflare DNS/WAF (**#01**) dan membatasi kustomisasi penuh record email anti-spoofing SPF/DMARC/DKIM (**#45, #69–#71**). Untuk mengaktifkan WAF edge, HSTS tingkat proxy, serta kebijakan `v=spf1 -all` dan `_dmarc` (`p=reject`), gunakan domain milik sendiri (misalnya `.my.id`/`.id`/`.com`).
+
+### Perbaikan keamanan kode (*white-box hardening*) pada update ini
+
+| Area | Celah yang ditutup | Implementasi |
+| --- | --- | --- |
+| Anti-Lockout Login DoS | Penyerang yang mengetahui username admin (`ALDI`) sebelumnya dapat memicu lockout global akun hanya dengan 10 percobaan gagal per 15 menit dari satu IP asing. | Pembatas ketat 10 percobaan/15 menit diikat ke pasangan `(IP + akun)` (`ip_account`), dilengkapi batas IP (30/15 menit) dan rem darurat kegagalan terdistribusi (`account_fail`: 60 gagal/15 menit). Login sukses mereset pasangan `(IP + akun)` pemilik. |
+| Host Header & Proto Poisoning | `app_public_base_url()` sebelumnya membaca `HTTP_HOST` dan `HTTP_X_FORWARDED_PROTO` tanpa validasi saat membentuk URL webhook ber-secret. | Validasi ketat hostname RFC/IP (`app_validated_http_host()`), dukungan `public_base_url` eksplisit, serta `trusted_proxy_ips` opsional di `config.php`. |
+| Enkripsi Secret At-Rest | Token Fonnte, Client Secret & Refresh Token Google, serta secret webhook tersimpan plaintext di `app_settings` dan ikut ter-ekspor ke backup `.sql`. | Enkripsi AEAD (`AES-256-GCM` / `XChaCha20-Poly1305` dengan HKDF-SHA256 & AAD nama setting) melalui `app_encryption_key` di `config.php`, lengkap dengan migrasi otomatis nilai plaintext lama. |
+| Cookie Prefix & Lampiran | Cookie sesi HTTPS belum memakai prefix `__Host-`; endpoint lampiran belum memiliki CSP `sandbox` tersendiri dan fallback non-GD belum membersihkan EXIF. | Nama sesi otomatis menjadi `__Host-rumahku_session` saat HTTPS (`Path=/`, `Secure`, `HttpOnly`, tanpa `Domain`). Endpoint `attachment` memvalidasi whitelist MIME, memasang CSP `sandbox`, dan membersihkan segmen EXIF/GPS/komentar JPEG bila GD tidak tersedia. |
+| Otorisasi Anggota | `target/save` dan `reminder/send` sebelumnya dapat dipanggil anggota biasa untuk mengubah target rumah atau mengirim pengingat milik pengguna lain. | `target/save` dibatasi khusus `admin`; `reminder/send` dibatasi untuk pembuat pengingat atau `admin` (selaras antara API dan UI). |
+| Anti-Replay & Konkurensi | `telegram-backup.php` mengizinkan replay tanda tangan yang sama selama ±5 menit; deduplikasi `whatsapp.php` hanya menyimpan 1 hash non-atomik; `cron.php` berisiko kirim ganda saat tumpang tindih. | Signature `telegram-backup.php` menjadi sekali pakai (single-use) + rate limit; deduplikasi webhook multi-pesan atomik 120 detik di database; klaim baris pengingat & kunci laporan bulanan atomik di `cron.php`. |
+| Paket Update & Diagnostik | `storage/.htaccess` belum ikut di `website-update.zip`; `update/cek-pasang.php` dapat diakses tanpa login dan dihapus lewat `GET ?hapus=1`. | `storage/.htaccess` disertakan ke paket update/ZIP; `cek-pasang.php` mewajibkan sesi admin aktif saat aplikasi sudah terpasang serta memakai `POST` + token CSRF untuk hapus mandiri. |
+
+### Opsi tambahan `config.php`
+
+```php
+'public_base_url' => 'https://anggaran.page.gd',
+'app_encryption_key' => 'ISI_KUNCI_ACAK_MINIMAL_32_KARAKTER_DAN_SIMPAN_TERPISAH',
+'trusted_proxy_ips' => [], // isi hanya jika IP reverse proxy tetap & terdokumentasi hosting
+```
+
+Tes otomatis tambahan: `node scripts/test-deep-hardening.mjs`.
