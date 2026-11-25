@@ -5,15 +5,45 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Membuat update/website-update.zip dari isi update/website/.
- * ZIP-nya sudah membawa struktur folder yang benar (index.php + api.php + assets/…),
- * jadi bisa langsung diekstrak di htdocs tanpa risiko salah tempat.
- * Ditulis tanpa dependensi: memakai format ZIP standar + zlib bawaan Node.
+ * ZIP membawa struktur folder yang persis sama dengan htdocs/, sehingga bisa
+ * langsung diunggah & diekstrak satu kali di htdocs tanpa update manual satu per satu.
+ * Tidak menyertakan config.php maupun isi database/lampiran produksi.
  */
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = path.join(root, 'update', 'website');
 const zipPath = path.join(root, 'update', 'website-update.zip');
-const entriesToZip = ['security-contact.php', '.htaccess', 'includes/.htaccess', 'storage/.htaccess', 'includes/app.php', 'includes/wa.php', 'includes/security.php', 'index.php', 'api.php', 'whatsapp.php', 'cron.php', 'includes/google-calendar.php', 'assets/app.js', 'assets/importer.js', 'assets/calendar.js', 'assets/clipboard-import.js', 'assets/style.css'];
+
+const entriesToZip = [
+  // Endpoint utama di root (htdocs/)
+  'index.php',
+  'api.php',
+  'whatsapp.php',
+  'cron.php',
+  'telegram-backup.php',
+  'security-contact.php',
+  'config.example.php',
+
+  // Proteksi Apache (.htaccess)
+  '.htaccess',
+  'includes/.htaccess',
+  'storage/.htaccess',
+  'database/.htaccess',
+
+  // Modul backend PHP (htdocs/includes/)
+  'includes/app.php',
+  'includes/security.php',
+  'includes/wa.php',
+  'includes/google-calendar.php',
+
+  // Aset frontend (htdocs/assets/)
+  'assets/app.js',
+  'assets/style.css',
+  'assets/importer.js',
+  'assets/clipboard-import.js',
+  'assets/calendar.js',
+  'assets/brand.svg',
+];
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -56,10 +86,10 @@ for (const relativePath of entriesToZip) {
   const { time, day } = dosTimestamp(stats.mtime);
 
   const localHeader = Buffer.alloc(30);
-  localHeader.writeUInt32LE(0x04034b50, 0); // signature
-  localHeader.writeUInt16LE(20, 4); // versi minimum
-  localHeader.writeUInt16LE(0x0800, 6); // nama berkas UTF-8
-  localHeader.writeUInt16LE(useDeflate ? 8 : 0, 8); // metode kompresi
+  localHeader.writeUInt32LE(0x04034b50, 0);
+  localHeader.writeUInt16LE(20, 4);
+  localHeader.writeUInt16LE(0x0800, 6);
+  localHeader.writeUInt16LE(useDeflate ? 8 : 0, 8);
   localHeader.writeUInt16LE(time, 10);
   localHeader.writeUInt16LE(day, 12);
   localHeader.writeUInt32LE(checksum, 14);
@@ -69,9 +99,9 @@ for (const relativePath of entriesToZip) {
   localHeader.writeUInt16LE(0, 28);
 
   const centralHeader = Buffer.alloc(46);
-  centralHeader.writeUInt32LE(0x02014b50, 0); // signature central directory
-  centralHeader.writeUInt16LE(20, 4); // versi pembuat
-  centralHeader.writeUInt16LE(20, 6); // versi minimum
+  centralHeader.writeUInt32LE(0x02014b50, 0);
+  centralHeader.writeUInt16LE(20, 4);
+  centralHeader.writeUInt16LE(20, 6);
   centralHeader.writeUInt16LE(0x0800, 8);
   centralHeader.writeUInt16LE(useDeflate ? 8 : 0, 10);
   centralHeader.writeUInt16LE(time, 12);
@@ -80,11 +110,11 @@ for (const relativePath of entriesToZip) {
   centralHeader.writeUInt32LE(payload.length, 20);
   centralHeader.writeUInt32LE(data.length, 24);
   centralHeader.writeUInt16LE(name.length, 28);
-  centralHeader.writeUInt16LE(0, 30); // extra
-  centralHeader.writeUInt16LE(0, 32); // komentar
-  centralHeader.writeUInt16LE(0, 34); // nomor disk
-  centralHeader.writeUInt16LE(0, 36); // atribut internal
-  centralHeader.writeUInt32LE(0, 38); // atribut eksternal
+  centralHeader.writeUInt16LE(0, 30);
+  centralHeader.writeUInt16LE(0, 32);
+  centralHeader.writeUInt16LE(0, 34);
+  centralHeader.writeUInt16LE(0, 36);
+  centralHeader.writeUInt32LE(0, 38);
   centralHeader.writeUInt32LE(offset, 42);
 
   localParts.push(localHeader, name, payload);

@@ -222,14 +222,36 @@ if (is_file($root . '/website/index.php') || is_dir($root . '/update/website')) 
 }
 
 /* ------------------------------------------------------------------ *
- * 4. Berkas inti aplikasi
+ * 4. Berkas inti aplikasi & pengerasan keamanan terbaru
  * ------------------------------------------------------------------ */
 foreach ([
     'api.php' => 'API aplikasi wajib ada agar penyimpanan data berjalan.',
+    'whatsapp.php' => 'Endpoint webhook bot WhatsApp.',
+    'cron.php' => 'Endpoint jadwal pengingat & laporan otomatis.',
+    'telegram-backup.php' => 'Endpoint backup otomatis database ke Telegram.',
+    'security-contact.php' => 'Endpoint /.well-known/security.txt.',
+    '.htaccess' => 'Aturan security headers & proteksi berkas sensitif Apache.',
+    'includes/.htaccess' => 'Proteksi akses langsung ke folder includes/.',
+    'storage/.htaccess' => 'Proteksi akses langsung ke folder storage/.',
     'includes/app.php' => 'Berkas inti aplikasi (skema database, sesi, helper).',
+    'includes/security.php' => 'Modul enkripsi secret, pembatas login, dan header keamanan.',
+    'includes/wa.php' => 'Modul integrasi Fonnte WhatsApp.',
+    'includes/google-calendar.php' => 'Modul integrasi Google Kalender.',
 ] as $nama => $keterangan) {
     if (!is_file($root . '/' . $nama)) {
-        $tambah('error', $nama . ' tidak ditemukan', $keterangan, 'Unggah berkas ' . $nama . ' dari repository ke htdocs/' . $nama . '.');
+        $tambah('error', $nama . ' tidak ditemukan', $keterangan, 'Ekstrak ulang update/website-update.zip langsung di dalam folder htdocs.');
+    }
+}
+
+$secFile = periksa_file($root . '/includes/security.php');
+if ($secFile['ok']) {
+    if (!str_contains($secFile['isi'], 'app_encrypt_secret')) {
+        $tambah('warning', 'includes/security.php masih versi sebelum pengerasan enkripsi',
+            'Modul keamanan belum memuat fitur enkripsi secret database & anti-lockout login terbaru.',
+            'Ekstrak ulang update/website-update.zip di htdocs dan pilih Replace/Overwrite.');
+    } else {
+        $tambah('ok', 'Modul pengerasan keamanan terbaru aktif',
+            'includes/security.php sudah memuat anti-lockout login, enkripsi AEAD, dan validasi Host.');
     }
 }
 
@@ -238,7 +260,24 @@ if (!is_file($root . '/config.php')) {
         'Tanpa config.php, aplikasi memakai SQLite di storage/. Pastikan folder storage/ bisa ditulis server.',
         'Salin config.example.php menjadi config.php lalu isi detail database MySQL bila memakai MySQL.');
 } else {
-    $tambah('ok', 'config.php tersedia', 'Detail database dibaca dari berkas ini.');
+    $cfgCheck = function_exists('app_config') ? app_config() : [];
+    $hasEncKey = trim((string) ($cfgCheck['app_encryption_key'] ?? '')) !== '';
+    $hasBaseUrl = trim((string) ($cfgCheck['public_base_url'] ?? '')) !== '';
+    if (!$hasEncKey || !$hasBaseUrl) {
+        $kurang = [];
+        if (!$hasEncKey) {
+            $kurang[] = 'app_encryption_key';
+        }
+        if (!$hasBaseUrl) {
+            $kurang[] = 'public_base_url';
+        }
+        $tambah('warning', 'config.php tersedia (disarankan melengkapi ' . implode(' & ', $kurang) . ')',
+            'Aplikasi sudah berjalan normal, namun ' . implode(' dan ', $kurang) . ' belum diisi di config.php.',
+            'Lihat contoh di config.example.php untuk menambahkan kunci enkripsi secret database dan URL publik resmi.');
+    } else {
+        $tambah('ok', 'config.php tersedia & terkonfigurasi lengkap',
+            'Detail database, public_base_url, dan app_encryption_key sudah terpasang.');
+    }
 }
 
 if (!is_dir($root . '/storage') || !is_writable($root . '/storage')) {
