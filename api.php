@@ -151,13 +151,34 @@ try {
     }
 
     if ($action === 'dashboard' && $method === 'GET') {
-        $month = date('Y-m');
-        $totals = $pdo->prepare('SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE SUBSTR(transaction_date, 1, 7) = :month GROUP BY kind');
-        $totals->execute([':month' => $month]);
+        $rawMonth = isset($_GET['month']) ? trim((string) $_GET['month']) : '';
+        $month = $rawMonth !== '' ? $rawMonth : date('Y-m');
+        if (!app_valid_month($month)) {
+            app_json(['ok' => false, 'message' => 'Format bulan tidak valid.'], 422);
+        }
+        $tz = new DateTimeZone(date_default_timezone_get());
+        $anchorMonth = DateTimeImmutable::createFromFormat('!Y-m-d', $month . '-01', $tz)
+            ?: new DateTimeImmutable('first day of this month', $tz);
+        $periodStart = $anchorMonth->format('Y-m-01');
+        $periodEnd = $anchorMonth->modify('+1 month')->format('Y-m-01');
+
+        $openingQuery = $pdo->prepare('SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date < :start GROUP BY kind');
+        $openingQuery->execute([':start' => $periodStart]);
+        $openingByKind = ['income' => 0, 'expense' => 0];
+        foreach ($openingQuery->fetchAll() as $row) {
+            $openingByKind[(string) $row['kind']] = (int) $row['total'];
+        }
+        $openingBalance = $openingByKind['income'] - $openingByKind['expense'];
+
+        $totals = $pdo->prepare('SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date >= :start AND transaction_date < :end GROUP BY kind');
+        $totals->execute([':start' => $periodStart, ':end' => $periodEnd]);
         $byKind = ['income' => 0, 'expense' => 0];
         foreach ($totals->fetchAll() as $row) {
             $byKind[(string) $row['kind']] = (int) $row['total'];
         }
+        $periodNet = $byKind['income'] - $byKind['expense'];
+        $endingBalance = $openingBalance + $periodNet;
+
         $all = $pdo->query("SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions GROUP BY kind")->fetchAll();
         $allByKind = ['income' => 0, 'expense' => 0];
         foreach ($all as $row) {
@@ -171,10 +192,7 @@ try {
         $chart = [];
         $chartQuery = $pdo->prepare('SELECT kind, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE transaction_date >= :start AND transaction_date < :end GROUP BY kind');
         for ($offset = 5; $offset >= 0; $offset--) {
-            $chartDate = new DateTimeImmutable('first day of this month', new DateTimeZone(date_default_timezone_get()));
-            if ($offset > 0) {
-                $chartDate = $chartDate->modify('-' . $offset . ' months');
-            }
+            $chartDate = $offset > 0 ? $anchorMonth->modify('-' . $offset . ' months') : $anchorMonth;
             $chartMonth = $chartDate->format('Y-m');
             $chartQuery->execute([
                 ':start' => $chartDate->format('Y-m-01'),
@@ -189,8 +207,8 @@ try {
 
         $recentQuery = $pdo->prepare('SELECT t.id, t.kind, t.title, t.category, t.amount, t.transaction_date, t.note, t.user_id, u.display_name AS created_by_name FROM transactions t LEFT JOIN users u ON u.id = t.user_id WHERE t.transaction_date >= :start AND t.transaction_date < :end ORDER BY t.transaction_date DESC, t.id DESC LIMIT 7');
         $recentQuery->execute([
-            ':start' => $month . '-01',
-            ':end' => (new DateTimeImmutable($month . '-01'))->modify('+1 month')->format('Y-m-d'),
+            ':start' => $periodStart,
+            ':end' => $periodEnd,
         ]);
         $reminderQuery = $pdo->prepare("SELECT r.id, r.title, r.category, r.reminder_at, r.has_time, r.note, r.status, r.created_by, u.display_name AS created_by_name FROM reminders r LEFT JOIN users u ON u.id = r.created_by WHERE r.status = 'pending' ORDER BY r.reminder_at ASC LIMIT 4");
         $reminderQuery->execute();
@@ -204,11 +222,15 @@ try {
             'ok' => true,
             'month' => $month,
             'summary' => [
-                'balance' => $allByKind['income'] - $allByKind['expense'],
+                'balance' => $endingBalance,
+                'opening_balance' => $openingBalance,
+                'period_net' => $periodNet,
+                'previous_month' => $anchorMonth->modify('-1 month')->format('Y-m'),
                 'income' => $byKind['income'],
                 'expense' => $byKind['expense'],
                 'target' => $target,
                 'target_progress' => $target > 0 ? min(100, (int) round($byKind['expense'] / $target * 100)) : 0,
+                'all_balance' => $allByKind['income'] - $allByKind['expense'],
                 'all_income' => $allByKind['income'],
                 'all_expense' => $allByKind['expense'],
             ],

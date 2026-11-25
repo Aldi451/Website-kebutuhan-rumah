@@ -23,7 +23,7 @@ Jika Anda ingin tahu persis skrip apa saja yang ikut diperbarui saat mengekstrak
 ### A. Folder Utama (`htdocs/`)
 | Berkas di ZIP | Tujuan di Hosting | Fungsi Pembaruan |
 | --- | --- | --- |
-| `index.php` | `htdocs/index.php` | Halaman utama dashboard, CSP nonce, & versi cache aset terbaru (`?v=33`) |
+| `index.php` | `htdocs/index.php` | Halaman utama dashboard, CSP nonce, & versi cache aset terbaru (`?v=35` / `?v=20`) |
 | `api.php` | `htdocs/api.php` | Seluruh endpoint API, anti-lockout login, otorisasi admin/anggota, & keamanan lampiran |
 | `whatsapp.php` | `htdocs/whatsapp.php` | Endpoint webhook bot WhatsApp Fonnte (batas ukuran & validasi ketat) |
 | `cron.php` | `htdocs/cron.php` | Endpoint pengingat otomatis & laporan bulanan (klaim atomik anti-dobel kirim) |

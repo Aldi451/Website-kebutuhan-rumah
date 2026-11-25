@@ -15,6 +15,7 @@
     csrf: boot.csrf,
     page: 'dashboard',
     dashboard: null,
+    dashboardMonth: currentMonth(),
     finance: null,
     financeMonth: currentMonth(),
     transactionFilter: 'all',
@@ -101,6 +102,13 @@
     return `${parts.year}-${parts.month}`;
   }
 
+  function shiftMonth(monthValue, delta) {
+    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(monthValue || ''));
+    if (!match) return currentMonth();
+    const shifted = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1 + delta, 15));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
   function localDateValue(date = new Date()) {
     const parts = zonedDateParts(date);
     return `${parts.year}-${parts.month}-${parts.day}`;
@@ -119,6 +127,13 @@
     if (!value) return '';
     const [year, month] = value.split('-').map(Number);
     return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15)));
+  }
+
+  function shortMonthLabel(value) {
+    if (!value) return '';
+    const [year, month] = value.split('-').map(Number);
+    if (!year || !month) return value;
+    return new Intl.DateTimeFormat('id-ID', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15)));
   }
 
   function dateLabel(value, options = { day: 'numeric', month: 'short', year: 'numeric' }) {
@@ -1493,11 +1508,14 @@
     const content = document.getElementById('page-content');
     if (!content || !state.user) return;
     const requestedPage = state.page;
+    const requestedDashboardMonth = requestedPage === 'dashboard' ? (state.dashboardMonth || currentMonth()) : '';
     const requestedReportKey = requestedPage === 'report' ? reportRequestKey() : '';
     if (showLoading || !cacheReadyForPage()) content.innerHTML = loadingMarkup();
     try {
       if (state.page === 'dashboard') {
-        state.dashboard = await api('dashboard');
+        const dashboard = await api(`dashboard&month=${encodeURIComponent(requestedDashboardMonth)}`);
+        if (state.page !== requestedPage || (state.dashboardMonth || currentMonth()) !== requestedDashboardMonth) return;
+        state.dashboard = dashboard;
       } else if (state.page === 'finance') {
         state.finance = await api(`transactions&month=${encodeURIComponent(state.financeMonth)}`);
       } else if (state.page === 'report') {
@@ -1519,7 +1537,9 @@
       }
       renderPageContent();
     } catch (error) {
-      if (state.page !== requestedPage || (requestedPage === 'report' && reportRequestKey() !== requestedReportKey)) return;
+      if (state.page !== requestedPage
+        || (requestedPage === 'dashboard' && (state.dashboardMonth || currentMonth()) !== requestedDashboardMonth)
+        || (requestedPage === 'report' && reportRequestKey() !== requestedReportKey)) return;
       if (state.user) {
         content.innerHTML = `<div class="page-heading"><div><span class="eyebrow"><i class="eyebrow-dot"></i> ada kendala</span><h1>${escapeHtml(pageTitle())}</h1><p>${escapeHtml(error.message)}</p></div><button class="btn btn-secondary" data-action="retry" type="button">Coba lagi</button></div>`;
       }
@@ -1538,7 +1558,7 @@
   }
 
   function cacheReadyForPage() {
-    return (state.page === 'dashboard' && !!state.dashboard) ||
+    return (state.page === 'dashboard' && !!state.dashboard && state.dashboard.month === (state.dashboardMonth || currentMonth())) ||
       (state.page === 'finance' && !!state.finance && state.finance.month === state.financeMonth) ||
       (state.page === 'report' && !!state.report && state.reportKey === reportRequestKey()) ||
       (state.page === 'reminders' && !!state.reminders) ||
@@ -1595,6 +1615,24 @@
       state.reminderPeriod = localDateValue();
       renderPageContent();
     });
+    const dashboardMonthInput = content.querySelector('[data-dashboard-month]');
+    if (dashboardMonthInput) dashboardMonthInput.addEventListener('change', () => {
+      state.dashboardMonth = dashboardMonthInput.value || currentMonth();
+      state.dashboard = null;
+      refreshPage(true);
+    });
+    content.querySelectorAll('[data-dashboard-month-step]').forEach((button) => button.addEventListener('click', () => {
+      const delta = Number(button.dataset.dashboardMonthStep || 0);
+      if (!delta) return;
+      state.dashboardMonth = shiftMonth(state.dashboardMonth || currentMonth(), delta);
+      state.dashboard = null;
+      refreshPage(true);
+    }));
+    content.querySelector('[data-dashboard-month-reset]')?.addEventListener('click', () => {
+      state.dashboardMonth = currentMonth();
+      state.dashboard = null;
+      refreshPage(true);
+    });
     const monthInput = content.querySelector('[data-month-filter]');
     if (monthInput) monthInput.addEventListener('change', () => {
       state.financeMonth = monthInput.value || currentMonth();
@@ -1625,10 +1663,19 @@
   function dashboardMarkup() {
     const data = state.dashboard || {};
     const summary = data.summary || {};
-    const monthName = monthLabel(data.month || currentMonth());
+    const selectedMonth = data.month || state.dashboardMonth || currentMonth();
+    const isCurrentMonth = selectedMonth === currentMonth();
+    const monthName = monthLabel(selectedMonth);
+    const prevMonthKey = summary.previous_month || shiftMonth(selectedMonth, -1);
+    const prevMonthShort = shortMonthLabel(prevMonthKey);
+    const selectedMonthShort = shortMonthLabel(selectedMonth);
     const pending = Number(data.reminder_counts?.pending || 0);
     const target = Number(summary.target || 0);
+    const income = Number(summary.income || 0);
     const spent = Number(summary.expense || 0);
+    const openingBalance = Number(summary.opening_balance || 0);
+    const periodNet = Number(summary.period_net ?? (income - spent));
+    const periodBalance = Number(summary.balance ?? (openingBalance + periodNet));
     const progress = target ? Math.min(100, Number(summary.target_progress || 0)) : 0;
     const remaining = Math.max(0, target - spent);
     const chart = Array.isArray(data.chart) ? data.chart : [];
@@ -1639,30 +1686,43 @@
       <div class="page-heading">
         <div><span class="eyebrow"><i class="eyebrow-dot"></i> ringkasan rumah</span><h1>${todayGreeting()}, ${escapeHtml((state.user?.name || 'kamu').split(' ')[0])} 👋</h1><p>Ini ringkasan keuangan dan agenda rumahmu untuk ${escapeHtml(monthName)}.</p></div>
         <div class="heading-actions"><button class="btn btn-secondary" type="button" data-action="open-transaction" data-kind="income">${icon('plus')} Catat transaksi</button><button class="btn" type="button" data-action="open-reminder">${icon('plus')} Buat pengingat</button></div>
+      </div>
+      <div class="dashboard-period-bar">
+        <div class="dashboard-period-controls">
+          <span class="dashboard-period-label">${icon('calendar')} Periode</span>
+          <button class="period-step-btn" type="button" data-dashboard-month-step="-1" aria-label="Bulan sebelumnya" title="Bulan sebelumnya">‹</button>
+          <label class="sr-only" for="dashboard-month">Pilih periode bulan dan tahun</label>
+          <input class="month-input" type="month" id="dashboard-month" data-dashboard-month value="${escapeHtml(selectedMonth)}">
+          <button class="period-step-btn" type="button" data-dashboard-month-step="1" aria-label="Bulan berikutnya" title="Bulan berikutnya">›</button>
+        </div>
+        <div class="dashboard-period-meta">
+          <span class="dashboard-period-current">${escapeHtml(monthName)}</span>
+          ${!isCurrentMonth ? `<button class="btn-link dashboard-period-reset" type="button" data-dashboard-month-reset>Bulan ini</button>` : ''}
+        </div>
       </div>`;
     const chartBars = chart.map((item) => {
       const incomeHeight = Math.max(0, Math.min(100, Number(item.income || 0) / maxBar * 100));
       const expenseHeight = Math.max(0, Math.min(100, Number(item.expense || 0) / maxBar * 100));
-      const isCurrent = item.month === (data.month || currentMonth());
+      const isCurrent = item.month === selectedMonth;
       const chartLabel = item.month ? new Intl.DateTimeFormat('id-ID', { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(Number(item.month.slice(0, 4)), Number(item.month.slice(5, 7)) - 1, 15))) : item.label;
       return `<div class="chart-month${isCurrent ? ' current' : ''}"><div class="chart-tooltip">${escapeHtml(chartLabel)} · ${money(item.income)} masuk · ${money(item.expense)} keluar</div><div class="chart-bars"><span class="chart-bar" style="height:${incomeHeight}%"></span><span class="chart-bar expense" style="height:${expenseHeight}%"></span></div><span class="chart-label">${escapeHtml(chartLabel)}</span></div>`;
     }).join('');
 
     return `${activePageHeading}
       <div class="grid stats-grid">
-        <article class="card stat-card stat-card-primary"><div class="stat-top"><span class="stat-label">Saldo tercatat</span><span class="stat-icon">${icon('wallet')}</span></div><div class="stat-value">${money(summary.balance || 0)}</div><div class="stat-helper">Akumulasi dari seluruh catatan uang masuk dan keluar</div></article>
-        <article class="card stat-card"><div class="stat-top"><span class="stat-label">Uang masuk · bulan ini</span><span class="stat-icon">${icon('arrowDown')}</span></div><div class="stat-value">${money(summary.income || 0)}</div><div class="stat-helper"><span class="stat-inline">${icon('calendar')} ${escapeHtml(monthName)}</span></div></article>
-        <article class="card stat-card"><div class="stat-top"><span class="stat-label">Uang keluar · bulan ini</span><span class="stat-icon">${icon('arrowUp')}</span></div><div class="stat-value">${money(summary.expense || 0)}</div><div class="stat-helper"><span class="stat-inline">${icon('calendar')} ${escapeHtml(monthName)}</span></div></article>
+        <article class="card stat-card stat-card-primary"><div class="stat-top"><span class="stat-label">Saldo tercatat · akhir ${escapeHtml(selectedMonthShort)}</span><span class="stat-icon">${icon('wallet')}</span></div><div class="stat-value">${money(periodBalance)}</div><div class="stat-helper">Ending ${escapeHtml(prevMonthShort)} (${money(openingBalance)}) ${periodNet >= 0 ? '+' : '−'} selisih ${escapeHtml(selectedMonthShort)} (${money(Math.abs(periodNet))})</div></article>
+        <article class="card stat-card"><div class="stat-top"><span class="stat-label">${isCurrentMonth ? 'Uang masuk · bulan ini' : 'Uang masuk · periode ini'}</span><span class="stat-icon">${icon('arrowDown')}</span></div><div class="stat-value">${money(income)}</div><div class="stat-helper"><span class="stat-inline">${icon('calendar')} ${escapeHtml(monthName)}</span></div></article>
+        <article class="card stat-card"><div class="stat-top"><span class="stat-label">${isCurrentMonth ? 'Uang keluar · bulan ini' : 'Uang keluar · periode ini'}</span><span class="stat-icon">${icon('arrowUp')}</span></div><div class="stat-value">${money(spent)}</div><div class="stat-helper"><span class="stat-inline">${icon('calendar')} ${escapeHtml(monthName)}</span></div></article>
       </div>
       <div class="grid dashboard-grid">
-        <article class="card cashflow-card"><div class="card-head"><div><h2 class="card-title">Arus kas rumah</h2><p class="card-subtitle">Perbandingan uang masuk dan keluar, 6 bulan terakhir</p></div><button class="btn-link" type="button" data-page="finance">Lihat detail ${icon('arrowRight')}</button></div><div class="chart-legend"><span class="legend-item"><i class="legend-dot"></i> Uang masuk</span><span class="legend-item"><i class="legend-dot expense"></i> Uang keluar</span></div><div class="chart-area" role="img" aria-label="Grafik arus kas enam bulan">${chartBars || emptyState('Belum ada data', 'Transaksi yang kamu catat akan muncul di grafik ini.', 'chart')}</div></article>
+        <article class="card cashflow-card"><div class="card-head"><div><h2 class="card-title">Arus kas rumah</h2><p class="card-subtitle">Perbandingan uang masuk dan keluar, 6 bulan sampai ${escapeHtml(monthName)}</p></div><button class="btn-link" type="button" data-page="finance" data-sync-month="1">Lihat detail ${icon('arrowRight')}</button></div><div class="chart-legend"><span class="legend-item"><i class="legend-dot"></i> Uang masuk</span><span class="legend-item"><i class="legend-dot expense"></i> Uang keluar</span></div><div class="chart-area" role="img" aria-label="Grafik arus kas enam bulan">${chartBars || emptyState('Belum ada data', 'Transaksi yang kamu catat akan muncul di grafik ini.', 'chart')}</div></article>
         <div class="side-column">
-          <article class="card target-card"><div class="target-head"><div><h2 class="card-title">Target pengeluaran</h2><p class="card-subtitle">${escapeHtml(monthName)}</p></div><span class="target-glyph">${icon('target')}</span></div>${target ? `<div class="target-amounts"><strong>${money(spent)}</strong><span>dari ${money(target)}</span></div><div class="target-progress"><span style="width:${progress}%"></span></div><div class="target-meta"><span>${spent > target ? 'Target terlampaui' : `${money(remaining)} tersisa`}</span><strong>${progress}%</strong></div>` : `<div class="target-empty">${state.user?.role === 'admin' ? 'Pasang batas belanja bulanan supaya pengeluaran lebih terarah.' : 'Target pengeluaran bulan ini belum diatur admin rumah.'}</div>${state.user?.role === 'admin' ? `<button class="btn-link" type="button" data-page="finance" style="margin-top:11px">Atur target ${icon('arrowRight')}</button>` : ''}`}</article>
+          <article class="card target-card"><div class="target-head"><div><h2 class="card-title">Target pengeluaran</h2><p class="card-subtitle">${escapeHtml(monthName)}</p></div><span class="target-glyph">${icon('target')}</span></div>${target ? `<div class="target-amounts"><strong>${money(spent)}</strong><span>dari ${money(target)}</span></div><div class="target-progress"><span style="width:${progress}%"></span></div><div class="target-meta"><span>${spent > target ? 'Target terlampaui' : `${money(remaining)} tersisa`}</span><strong>${progress}%</strong></div>` : `<div class="target-empty">${state.user?.role === 'admin' ? 'Pasang batas belanja bulanan supaya pengeluaran lebih terarah.' : 'Target pengeluaran periode ini belum diatur admin rumah.'}</div>${state.user?.role === 'admin' ? `<button class="btn-link" type="button" data-page="finance" data-sync-month="1" style="margin-top:11px">Atur target ${icon('arrowRight')}</button>` : ''}`}</article>
           <article class="card quick-card"><div class="card-head" style="padding:0"><div><h2 class="card-title">Catat cepat</h2><p class="card-subtitle">Biar nggak lupa nanti</p></div></div><div class="quick-actions"><button class="quick-action" type="button" data-action="open-transaction" data-kind="income"><span class="quick-action-icon">${icon('arrowDown')}</span><span>Uang<br>masuk</span></button><button class="quick-action" type="button" data-action="open-transaction" data-kind="expense"><span class="quick-action-icon">${icon('arrowUp')}</span><span>Uang<br>keluar</span></button><button class="quick-action" type="button" data-action="open-reminder"><span class="quick-action-icon">${icon('bell')}</span><span>Pengingat<br>baru</span></button><button class="quick-action" type="button" data-page="settings"><span class="quick-action-icon">${icon('settings')}</span><span>Atur<br>akun</span></button></div></article>
         </div>
       </div>
       <div class="grid lower-grid">
-        <article class="card list-card"><div class="card-head"><div><h2 class="card-title">Transaksi bulan ini</h2><p class="card-subtitle">7 transaksi terbaru pada bulan berjalan</p></div><button class="btn-link" type="button" data-page="finance">Semua transaksi ${icon('arrowRight')}</button></div><div class="transaction-list">${transactionRows || emptyState('Belum ada transaksi bulan ini', 'Riwayat bulan lain tetap tersedia di menu Keuangan.', 'receipt')}</div></article>
+        <article class="card list-card"><div class="card-head"><div><h2 class="card-title">${isCurrentMonth ? 'Transaksi bulan ini' : `Transaksi ${escapeHtml(monthName)}`}</h2><p class="card-subtitle">${isCurrentMonth ? '7 transaksi terbaru pada bulan berjalan' : '7 transaksi terbaru pada periode terpilih'}</p></div><button class="btn-link" type="button" data-page="finance" data-sync-month="1">Semua transaksi ${icon('arrowRight')}</button></div><div class="transaction-list">${transactionRows || (isCurrentMonth ? emptyState('Belum ada transaksi bulan ini', 'Riwayat bulan lain tetap tersedia di menu Keuangan.', 'receipt') : emptyState('Belum ada transaksi pada periode ini', 'Pilih periode lain di atas atau tambahkan transaksi baru.', 'receipt'))}</div></article>
         <article class="card list-card"><div class="card-head"><div><h2 class="card-title">Pengingat mendatang</h2><p class="card-subtitle">${pending} agenda masih aktif</p></div><button class="btn-link" type="button" data-page="reminders">Lihat semua ${icon('arrowRight')}</button></div><div class="reminder-list">${reminderRows || emptyState('Agenda masih kosong', 'Buat pengingat kecil agar hal penting tidak terlewat.', 'bell')}</div></article>
       </div>`;
   }
@@ -2242,6 +2302,7 @@
     }
     state.user = null;
     state.dashboard = null;
+    state.dashboardMonth = currentMonth();
     state.finance = null;
     state.report = null;
     state.reportKey = '';
@@ -2255,6 +2316,10 @@
     const pageButton = event.target.closest('[data-page]');
     if (pageButton) {
       event.preventDefault();
+      if (pageButton.dataset.syncMonth && state.dashboardMonth && state.financeMonth !== state.dashboardMonth) {
+        state.financeMonth = state.dashboardMonth;
+        state.finance = null;
+      }
       navigate(pageButton.dataset.page);
       return;
     }
@@ -2487,8 +2552,12 @@
         state.finance = null;
         state.report = null;
         state.reportKey = '';
-        // Transaksi yang dipindah ke bulan lain langsung ditampilkan tanpa perlu mencari manual.
+        const txMonth = result.month || String(data.date || '').slice(0, 7);
+        // Transaksi yang dicatat/dipindah ke bulan lain langsung ditampilkan tanpa perlu mencari manual.
         if (recordId && result.month && state.financeMonth !== result.month) state.financeMonth = result.month;
+        if (/^\d{4}-(0[1-9]|1[0-2])$/.test(txMonth) && state.page === 'dashboard' && state.dashboardMonth !== txMonth) {
+          state.dashboardMonth = txMonth;
+        }
         await refreshPage(true);
       } else if (kind === 'reminder') {
         const recordId = form.dataset.mode === 'edit' ? Number(data.id || 0) : 0;
