@@ -38,6 +38,16 @@ if (!hash_equals($expected, $signature)) {
 
 try {
     $pdo = app_db();
+    $now = time();
+    // Single-use signature replay protection across the full +/-300s validity window.
+    if (app_notification_slot($pdo, 'telegram_backup:sig:' . $timestamp . ':' . $signature, 1, 660, $now) > 0) {
+        telegram_backup_reject();
+    }
+    $retry = app_notification_slot($pdo, 'telegram_backup:rate', 3, 300, $now);
+    if ($retry > 0) {
+        header('Retry-After: ' . $retry);
+        telegram_backup_reject(429);
+    }
     header('Content-Type: application/sql; charset=utf-8');
     header('Content-Disposition: attachment');
     header('X-Backup-Format: rumahku-sql-v1');

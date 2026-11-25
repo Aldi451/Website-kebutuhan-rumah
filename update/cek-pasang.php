@@ -10,10 +10,66 @@ declare(strict_types=1);
  *   3. Ikuti saran yang muncul, lalu HAPUS file ini lagi.
  *
  * File ini hanya membaca nama & isi file (tidak menulis apa pun), kecuali bila
- * kamu sendiri membuka ?hapus=1 untuk menghapus file pemeriksa ini.
+ * admin sendiri menekan tombol Hapus (POST + CSRF) untuk menghapus file pemeriksa ini.
  */
 
-if (isset($_GET['hapus'])) {
+header_remove('X-Powered-By');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+header('X-Frame-Options: DENY');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+header('Cache-Control: no-store, private');
+header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+
+$root = __DIR__;
+$csrfToken = '';
+
+if (is_file($root . '/includes/app.php')) {
+    require_once $root . '/includes/app.php';
+    app_start_session();
+    $csrfToken = (string) ($_SESSION['csrf_token'] ?? '');
+    try {
+        $pdo = app_db();
+        $hasAdmin = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn() > 0;
+        if ($hasAdmin) {
+            $currentUser = app_user();
+            if (!$currentUser || ($currentUser['role'] ?? '') !== 'admin') {
+                http_response_code(403);
+                header('Content-Type: text/html; charset=utf-8');
+                echo '<!doctype html><html lang="id"><meta charset="utf-8"><title>Akses dibatasi</title>'
+                    . '<body style="font-family:system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 20px;line-height:1.7;color:#243a43">'
+                    . '<h1 style="font-size:20px">Masuk sebagai Admin terlebih dahulu</h1>'
+                    . '<p>Halaman pemeriksa pemasangan hanya dapat dibuka oleh akun admin yang sedang login. Silakan <a href="/">masuk ke dashboard</a> lalu muat ulang halaman ini, atau hapus <code>cek-pasang.php</code> lewat File Manager hosting.</p>'
+                    . '</body></html>';
+                exit;
+            }
+        }
+    } catch (Throwable $e) {
+        // Jika database belum siap, izinkan pemeriksaan berkas dasar tanpa membocorkan detail sensitif.
+    }
+} else {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+    $_SESSION['cek_pasang_csrf'] ??= bin2hex(random_bytes(32));
+    $csrfToken = (string) $_SESSION['cek_pasang_csrf'];
+}
+
+$method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
+    header('Allow: GET, HEAD, POST');
+    http_response_code(405);
+    exit;
+}
+
+if ($method === 'POST' && (string) ($_POST['aksi'] ?? '') === 'hapus') {
+    $givenCsrf = (string) ($_POST['_csrf'] ?? '');
+    if ($csrfToken === '' || $givenCsrf === '' || !hash_equals($csrfToken, $givenCsrf)) {
+        http_response_code(419);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Token keamanan kedaluwarsa. Muat ulang halaman lalu coba lagi.';
+        exit;
+    }
     $deleted = @unlink(__FILE__);
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><html lang="id"><meta charset="utf-8"><title>Hapus pemeriksa</title>'
@@ -25,8 +81,6 @@ if (isset($_GET['hapus'])) {
         . '</body></html>';
     exit;
 }
-
-$root = __DIR__;
 
 /** @return array{ok: bool, isi: string, ukuran: int} */
 function periksa_file(string $path, int $batas = 400000): array
@@ -197,11 +251,11 @@ if (!is_dir($root . '/storage') || !is_writable($root . '/storage')) {
  * 5. Lingkungan server
  * ------------------------------------------------------------------ */
 if (version_compare(PHP_VERSION, '8.0.0', '<')) {
-    $tambah('error', 'Versi PHP terlalu lama (' . PHP_VERSION . ')',
+    $tambah('error', 'Versi PHP terlalu lama (di bawah 8.0)',
         'Aplikasi ini memerlukan PHP 8.0 atau lebih baru.',
         'Ubah versi PHP di panel hosting (InfinityFree: menu PHP Configuration) ke PHP 8.x.');
 } else {
-    $tambah('ok', 'Versi PHP ' . PHP_VERSION . ' memadai', 'Minimal PHP 8.0 diperlukan oleh aplikasi.');
+    $tambah('ok', 'Versi PHP 8.x memadai', 'Minimal PHP 8.0 diperlukan oleh aplikasi.');
 }
 
 $jumlahError = 0;
@@ -279,8 +333,12 @@ $warna = [
     <?php endforeach; ?>
 
     <div class="kaki">
-        Setelah semua beres, hapus file pemeriksa ini: <a href="?hapus=1" onclick="return confirm('Hapus file cek-pasang.php dari hosting?')">hapus sekarang</a>.
-        Folder yang diperiksa: <code><?= htmlspecialchars(basename($root), ENT_QUOTES, 'UTF-8') ?></code>.
+        <form method="post" style="display:inline;margin-right:8px">
+            <input type="hidden" name="aksi" value="hapus">
+            <input type="hidden" name="_csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <button type="submit" style="padding:5px 10px;border-radius:7px;border:1px solid #d9b5ae;background:#fff0eb;color:#b45645;font-weight:600;cursor:pointer">Hapus cek-pasang.php sekarang</button>
+        </form>
+        Setelah semua beres, segera hapus file pemeriksa ini dari hosting.
         Butuh bantuan? Lihat <code>update/README.md</code> di repository.
     </div>
 </main>

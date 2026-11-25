@@ -307,18 +307,7 @@ function app_wa_touch_contact(int $id): void
 
 function app_public_base_url(): string
 {
-    $https = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && strtolower((string) $_SERVER['HTTPS']) !== 'off')
-        || strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
-    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? 'localhost'));
-    if ($host === '') {
-        $host = 'localhost';
-    }
-    $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/api.php'));
-    $directory = rtrim((string) dirname($script), '/');
-    if ($directory === '.' || $directory === '/') {
-        $directory = '';
-    }
-    return ($https ? 'https' : 'http') . '://' . $host . $directory;
+    return app_configured_base_url();
 }
 
 function app_wa_webhook_secret(): string
@@ -655,24 +644,13 @@ function app_wa_unknown_text(string $phone): string
         . "• laporan\n• laporan bulan lalu\n• target bulan ini";
 }
 
-/** Maksimal 10 balasan untuk nomor tak dikenal per jam, supaya kuota tidak terbuang. */
+/** Maksimal 10 balasan untuk nomor tak dikenal per jam, atomik di DB. */
 function app_wa_unknown_reply_allowed(): bool
 {
-    $hour = date('Y-m-d H');
-    if ((string) app_setting('wa_unknown_hour', '') !== $hour) {
-        app_set_setting('wa_unknown_hour', $hour);
-        app_set_setting('wa_unknown_count', '1');
-        return true;
-    }
-    $count = (int) app_setting('wa_unknown_count', '0');
-    if ($count >= 10) {
-        return false;
-    }
-    app_set_setting('wa_unknown_count', (string) ($count + 1));
-    return true;
+    return app_notification_slot(app_db(), 'wa_unknown_reply', 10, 3600, time()) === 0;
 }
 
-/** Menolak pemrosesan ganda saat Fonnte mengulang kiriman webhook yang sama. */
+/** Menolak pemrosesan ganda secara atomik (multi-pesan, 120 detik) saat Fonnte mengulang webhook. */
 function app_wa_is_duplicate(array $payload): bool
 {
     $hash = hash('sha256', json_encode([
@@ -682,14 +660,7 @@ function app_wa_is_duplicate(array $payload): bool
         (string) ($payload['timestamp'] ?? ''),
         (string) ($payload['inboxid'] ?? ''),
     ]));
-    $lastHash = (string) app_setting('wa_last_payload_hash', '');
-    $lastAt = (int) app_setting('wa_last_payload_at', '0');
-    if ($lastHash === $hash && (time() - $lastAt) < 120) {
-        return true;
-    }
-    app_set_setting('wa_last_payload_hash', $hash);
-    app_set_setting('wa_last_payload_at', (string) time());
-    return false;
+    return app_notification_slot(app_db(), 'wa_dedup:' . $hash, 1, 120, time()) > 0;
 }
 
 /* ------------------------------------------------------------------ *

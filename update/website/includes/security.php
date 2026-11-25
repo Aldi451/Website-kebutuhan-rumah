@@ -13,11 +13,203 @@ function app_csp_nonce(): string
     return $nonce ??= base64_encode(random_bytes(24));
 }
 
-/** Never trust X-Forwarded-Proto supplied by an arbitrary client. */
-function app_request_is_https(?array $server = null): bool
+/**
+ * Never trust X-Forwarded-Proto/CF-Visitor from an arbitrary client unless
+ * REMOTE_ADDR is explicitly listed in owner-configured trusted_proxy_ips.
+ */
+function app_request_is_https(?array $server = null, ?array $config = null): bool
 {
     $server = $server ?? $_SERVER;
-    return isset($server['HTTPS']) && in_array(strtolower((string) $server['HTTPS']), ['on', '1'], true);
+    $httpsRaw = isset($server['HTTPS']) ? strtolower(trim((string) $server['HTTPS'])) : '';
+    if (in_array($httpsRaw, ['on', '1'], true)) {
+        return true;
+    }
+    if ($httpsRaw === '' && (
+        (string) ($server['SERVER_PORT'] ?? '') === '443'
+        || strtolower((string) ($server['REQUEST_SCHEME'] ?? '')) === 'https'
+    )) {
+        return true;
+    }
+    $config = $config ?? (function_exists('app_config') ? app_config() : []);
+    $trustedProxies = $config['trusted_proxy_ips'] ?? [];
+    $remoteAddr = trim((string) ($server['REMOTE_ADDR'] ?? ''));
+    if (is_array($trustedProxies) && $remoteAddr !== '' && in_array($remoteAddr, $trustedProxies, true)) {
+        $forwardedProto = strtolower(trim(explode(',', (string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        if ($forwardedProto === 'https') {
+            return true;
+        }
+        $cfVisitor = json_decode((string) ($server['HTTP_CF_VISITOR'] ?? ''), true);
+        if (is_array($cfVisitor) && strtolower((string) ($cfVisitor['scheme'] ?? '')) === 'https') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Validate HTTP Host against RFC hostname / IPv4 / bracketed IPv6 + optional port. */
+function app_validated_http_host(string $rawHost): string
+{
+    $host = trim($rawHost);
+    if ($host === '' || strlen($host) > 253 || preg_match('/[\x00-\x20\x7f\/\\\\@?#]/', $host)) {
+        return 'localhost';
+    }
+    if (str_starts_with($host, '[')) {
+        if (!preg_match('/^\[([0-9a-fA-F:]{2,45})\](?::([1-9][0-9]{0,4}))?$/', $host, $m)) {
+            return 'localhost';
+        }
+        if (!filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            return 'localhost';
+        }
+        if (isset($m[2]) && $m[2] !== '' && (int) $m[2] > 65535) {
+            return 'localhost';
+        }
+        return strtolower('[' . $m[1] . ']') . (isset($m[2]) && $m[2] !== '' ? ':' . $m[2] : '');
+    }
+    if (!preg_match('/^([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)(?::([1-9][0-9]{0,4}))?$/', $host, $m)) {
+        return 'localhost';
+    }
+    if (isset($m[2]) && $m[2] !== '' && (int) $m[2] > 65535) {
+        return 'localhost';
+    }
+    return strtolower($m[1]) . (isset($m[2]) && $m[2] !== '' ? ':' . $m[2] : '');
+}
+
+/** Safe base URL builder immune to Host header & X-Forwarded-Proto poisoning. */
+function app_configured_base_url(?array $config = null, ?array $server = null): string
+{
+    $config = $config ?? (function_exists('app_config') ? app_config() : []);
+    $server = $server ?? $_SERVER;
+    $explicit = rtrim(trim((string) ($config['public_base_url'] ?? '')), '/');
+    if ($explicit !== '' && strlen($explicit) <= 300 && !preg_match('/[\x00-\x20\x7f]/', $explicit)) {
+        $parsed = parse_url($explicit);
+        $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+        if (
+            filter_var($explicit, FILTER_VALIDATE_URL)
+            && in_array($scheme, ['https', 'http'], true)
+            && isset($parsed['host'])
+            && !isset($parsed['user'], $parsed['pass'], $parsed['query'], $parsed['fragment'])
+        ) {
+            return $explicit;
+        }
+    }
+    $https = app_request_is_https($server, $config);
+    $host = app_validated_http_host((string) ($server['HTTP_HOST'] ?? 'localhost'));
+    $script = str_replace('\\', '/', (string) ($server['SCRIPT_NAME'] ?? '/api.php'));
+    $directory = rtrim((string) dirname($script), '/');
+    if ($directory === '.' || $directory === '/' || preg_match('/[\x00-\x20\x7f]/', $directory)) {
+        $directory = '';
+    }
+    return ($https ? 'https' : 'http') . '://' . $host . $directory;
+}
+
+/** Setting keys that hold credentials/secrets and should be encrypted at rest when configured. */
+function app_sensitive_setting_keys(): array
+{
+    return ['fonnte_token', 'google_calendar_config', 'google_calendar_tokens', 'wa_webhook_secret'];
+}
+
+function app_encryption_key_bytes(?array $config = null): ?string
+{
+    $config = $config ?? (function_exists('app_config') ? app_config() : []);
+    $secret = (string) ($config['app_encryption_key'] ?? '');
+    if (strlen($secret) < 32 || strpos($secret, "\0") !== false) {
+        return null;
+    }
+    return hash_hkdf('sha256', $secret, 32, 'rumahku-settings-aead-v1');
+}
+
+function app_encrypt_setting_value(string $settingKey, string $plaintext, ?array $config = null): string
+{
+    if ($plaintext === '' || str_starts_with($plaintext, 'enc:v1:') || !in_array($settingKey, app_sensitive_setting_keys(), true)) {
+        return $plaintext;
+    }
+    $key = app_encryption_key_bytes($config);
+    if ($key === null) {
+        return $plaintext;
+    }
+    if (function_exists('openssl_encrypt')) {
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $settingKey, 16);
+        if ($cipher === false || strlen($tag) !== 16) {
+            throw new RuntimeException('Gagal mengenkripsi pengaturan rahasia.');
+        }
+        return 'enc:v1:gcm:' . base64_encode($iv . $tag . $cipher);
+    }
+    if (function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_encrypt')) {
+        $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
+        $cipher = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt($plaintext, $settingKey, $nonce, $key);
+        return 'enc:v1:xchacha:' . base64_encode($nonce . $cipher);
+    }
+    throw new RuntimeException('Ekstensi kriptografi OpenSSL/Sodium diperlukan untuk app_encryption_key.');
+}
+
+function app_decrypt_setting_value(string $settingKey, string $stored, ?array $config = null): string
+{
+    if (!str_starts_with($stored, 'enc:v1:')) {
+        return $stored;
+    }
+    $key = app_encryption_key_bytes($config);
+    if ($key === null) {
+        throw new RuntimeException('Pengaturan terenkripsi memerlukan app_encryption_key yang sesuai di config.php.');
+    }
+    if (str_starts_with($stored, 'enc:v1:gcm:')) {
+        if (!function_exists('openssl_decrypt')) {
+            throw new RuntimeException('Ekstensi PHP OpenSSL diperlukan untuk mendekripsi pengaturan.');
+        }
+        $raw = base64_decode(substr($stored, 11), true);
+        if ($raw === false || strlen($raw) < 28) {
+            throw new RuntimeException('Format pengaturan terenkripsi tidak valid.');
+        }
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $settingKey);
+        if ($plain === false) {
+            throw new RuntimeException('Kunci enkripsi tidak cocok atau data pengaturan telah berubah.');
+        }
+        return $plain;
+    }
+    if (str_starts_with($stored, 'enc:v1:xchacha:')) {
+        if (!function_exists('sodium_crypto_aead_xchacha20poly1305_ietf_decrypt')) {
+            throw new RuntimeException('Ekstensi PHP Sodium diperlukan untuk mendekripsi pengaturan.');
+        }
+        $nonceLen = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
+        $raw = base64_decode(substr($stored, 15), true);
+        if ($raw === false || strlen($raw) < $nonceLen + SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES) {
+            throw new RuntimeException('Format pengaturan terenkripsi tidak valid.');
+        }
+        $plain = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(substr($raw, $nonceLen), $settingKey, substr($raw, 0, $nonceLen), $key);
+        if ($plain === false) {
+            throw new RuntimeException('Kunci enkripsi tidak cocok atau data pengaturan telah berubah.');
+        }
+        return $plain;
+    }
+    throw new RuntimeException('Versi enkripsi pengaturan tidak dikenali.');
+}
+
+function app_migrate_encrypted_settings(PDO $pdo, ?array $config = null): void
+{
+    if (app_encryption_key_bytes($config) === null) {
+        return;
+    }
+    $keys = app_sensitive_setting_keys();
+    $placeholders = implode(', ', array_fill(0, count($keys), '?'));
+    $select = $pdo->prepare("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ({$placeholders})");
+    $select->execute($keys);
+    $update = $pdo->prepare('UPDATE app_settings SET setting_value = :enc WHERE setting_key = :key AND setting_value = :old');
+    foreach ($select->fetchAll() as $row) {
+        $k = (string) ($row['setting_key'] ?? '');
+        $v = (string) ($row['setting_value'] ?? '');
+        if ($v === '' || str_starts_with($v, 'enc:v1:')) {
+            continue;
+        }
+        $update->execute([
+            ':enc' => app_encrypt_setting_value($k, $v, $config),
+            ':key' => $k,
+            ':old' => $v,
+        ]);
+    }
 }
 
 function app_security_header_values(bool $preview, bool $https, int $hstsMaxAge): array
@@ -134,16 +326,46 @@ function app_login_limit_hit(PDO $pdo, string $bucket, int $limit, int $now): in
     return (int) $row['attempts'] > $limit ? max(1, (int) $row['reset_at'] - $now) : 0;
 }
 
+function app_login_limit_peek(PDO $pdo, string $bucket, int $limit, int $now): int
+{
+    $pdo->exec('CREATE TABLE IF NOT EXISTS security_login_limits (bucket VARCHAR(64) NOT NULL PRIMARY KEY, attempts INTEGER NOT NULL, reset_at INTEGER NOT NULL)');
+    $read = $pdo->prepare('SELECT attempts, reset_at FROM security_login_limits WHERE bucket = :bucket');
+    $read->execute([':bucket' => hash('sha256', $bucket)]);
+    $row = $read->fetch();
+    if (!$row || (int) $row['reset_at'] <= $now || (int) $row['attempts'] < $limit) {
+        return 0;
+    }
+    return max(1, (int) $row['reset_at'] - $now);
+}
+
 function app_limit_login(PDO $pdo, string $username): void
 {
-    // Do not trust user-supplied X-Forwarded-For. Shared proxies may share this limit.
+    // Do not trust user-supplied X-Forwarded-For. Scope strict 10-attempt lockout
+    // to (IP + account) so a remote attacker cannot permanently lock out the owner
+    // simply by knowing the default admin username, while keeping a distributed cap.
+    $now = time();
     $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-    $retry = app_login_limit_hit($pdo, 'ip:' . $ip, 30, time());
-    if ($retry === 0) $retry = app_login_limit_hit($pdo, 'account:' . strtolower($username), 10, time());
+    $account = strtolower($username);
+    $retry = app_login_limit_hit($pdo, 'ip:' . $ip, 30, $now);
+    if ($retry === 0) $retry = app_login_limit_hit($pdo, 'ip_account:' . $ip . ':' . $account, 10, $now);
+    if ($retry === 0) $retry = app_login_limit_peek($pdo, 'account_fail:' . $account, 60, $now);
     if ($retry > 0) {
         header('Retry-After: ' . $retry);
         app_json(['ok' => false, 'message' => 'Terlalu banyak percobaan login. Tunggu hingga 15 menit sebelum mencoba lagi.'], 429);
     }
+}
+
+function app_record_login_failure(PDO $pdo, string $username): void
+{
+    app_login_limit_hit($pdo, 'account_fail:' . strtolower($username), 60, time());
+}
+
+function app_clear_login_pair(PDO $pdo, string $username): void
+{
+    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $bucket = hash('sha256', 'ip_account:' . $ip . ':' . strtolower($username));
+    $del = $pdo->prepare('DELETE FROM security_login_limits WHERE bucket = :bucket');
+    $del->execute([':bucket' => $bucket]);
 }
 
 /** Reserve one attempt atomically. Denials do not extend the cooldown. */

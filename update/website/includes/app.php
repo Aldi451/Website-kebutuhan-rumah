@@ -25,6 +25,9 @@ function app_config(): array
         'hsts_max_age' => 86400,
         'security_contact' => '',
         'security_contact_expires' => '',
+        'public_base_url' => '',
+        'trusted_proxy_ips' => [],
+        'app_encryption_key' => '',
     ];
 
     $configFile = dirname(__DIR__) . '/config.php';
@@ -56,7 +59,8 @@ function app_start_session(): void
     ini_set('session.cookie_httponly', '1');
     ini_set('session.cookie_samesite', 'Lax');
     $isSecure = app_request_is_https();
-    session_name('rumahku_session');
+    // RFC 6265bis __Host- prefix locks the cookie to HTTPS, Path=/, and exact host (no Domain).
+    session_name($isSecure ? '__Host-rumahku_session' : 'rumahku_session');
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => '/',
@@ -262,6 +266,7 @@ function app_create_schema(PDO $pdo, bool $mysql): void
 
     app_bootstrap_admin($pdo);
     app_migrate_categories($pdo);
+    app_migrate_encrypted_settings($pdo);
 }
 
 function app_user(): ?array
@@ -312,20 +317,24 @@ function app_setting(string $key, ?string $fallback = null): ?string
     $query = app_db()->prepare('SELECT setting_value FROM app_settings WHERE setting_key = :key LIMIT 1');
     $query->execute([':key' => $key]);
     $value = $query->fetchColumn();
-    return $value === false ? $fallback : (string) $value;
+    if ($value === false) {
+        return $fallback;
+    }
+    return app_decrypt_setting_value($key, (string) $value);
 }
 
 function app_set_setting(string $key, string $value): void
 {
     $pdo = app_db();
+    $storedValue = app_encrypt_setting_value($key, $value);
     $query = $pdo->prepare('UPDATE app_settings SET setting_value = :value, updated_at = :updated WHERE setting_key = :key');
-    $query->execute([':value' => $value, ':updated' => date('Y-m-d H:i:s'), ':key' => $key]);
+    $query->execute([':value' => $storedValue, ':updated' => date('Y-m-d H:i:s'), ':key' => $key]);
     if ($query->rowCount() === 0) {
         $check = $pdo->prepare('SELECT COUNT(*) FROM app_settings WHERE setting_key = :key');
         $check->execute([':key' => $key]);
         if ((int) $check->fetchColumn() === 0) {
             $insert = $pdo->prepare('INSERT INTO app_settings (setting_key, setting_value, updated_at) VALUES (:key, :value, :updated)');
-            $insert->execute([':key' => $key, ':value' => $value, ':updated' => date('Y-m-d H:i:s')]);
+            $insert->execute([':key' => $key, ':value' => $storedValue, ':updated' => date('Y-m-d H:i:s')]);
         }
     }
 }
@@ -847,6 +856,9 @@ function app_prepare_receipt(string $bytes, string $fileName = ''): array
                 throw new RuntimeException('Gambar masih terlalu besar setelah dikompres. Pilih foto lain atau lewati bukti.');
             }
         }
+    } elseif ($mime === 'image/jpeg') {
+        // Without GD, strip EXIF/GPS (APP1-APP15) and COM segments from raw JPEG bytes.
+        $bytes = app_strip_jpeg_metadata($bytes);
     }
 
     $cleanName = preg_replace('/[^A-Za-z0-9._-]+/', '-', basename($fileName === '' ? 'bukti.jpg' : $fileName)) ?? 'bukti.jpg';
@@ -857,6 +869,58 @@ function app_prepare_receipt(string $bytes, string $fileName = ''): array
         'height' => $height,
         'name' => substr($cleanName, 0, 140),
     ];
+}
+
+/** Pure-PHP JPEG metadata scrubber (drops APP1..APP15 EXIF/XMP/GPS & COM comments). */
+function app_strip_jpeg_metadata(string $bytes): string
+{
+    $len = strlen($bytes);
+    if ($len < 4 || substr($bytes, 0, 2) !== "\xFF\xD8") {
+        return $bytes;
+    }
+    $out = "\xFF\xD8";
+    $pos = 2;
+    while ($pos < $len) {
+        if ($bytes[$pos] !== "\xFF") {
+            return $bytes;
+        }
+        while ($pos < $len && $bytes[$pos] === "\xFF") {
+            $pos++;
+        }
+        if ($pos >= $len) {
+            break;
+        }
+        $marker = ord($bytes[$pos++]);
+        if ($marker === 0xD9) {
+            $out .= "\xFF\xD9";
+            break;
+        }
+        if ($marker === 0xDA) {
+            // Start of Scan: copy remaining compressed entropy stream verbatim.
+            if ($pos + 2 > $len) {
+                return $bytes;
+            }
+            $out .= "\xFF\xDA" . substr($bytes, $pos);
+            return $out;
+        }
+        if ($marker === 0x01 || ($marker >= 0xD0 && $marker <= 0xD7)) {
+            $out .= "\xFF" . chr($marker);
+            continue;
+        }
+        if ($pos + 2 > $len) {
+            return $bytes;
+        }
+        $segLen = (ord($bytes[$pos]) << 8) | ord($bytes[$pos + 1]);
+        if ($segLen < 2 || $pos + $segLen > $len) {
+            return $bytes;
+        }
+        $drop = ($marker >= 0xE1 && $marker <= 0xEF) || $marker === 0xFE;
+        if (!$drop) {
+            $out .= "\xFF" . chr($marker) . substr($bytes, $pos, $segLen);
+        }
+        $pos += $segLen;
+    }
+    return strlen($out) >= 4 ? $out : $bytes;
 }
 
 /** Menyimpan (atau mengganti) bukti milik satu transaksi/pengingat. */

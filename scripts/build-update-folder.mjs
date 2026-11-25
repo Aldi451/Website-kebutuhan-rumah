@@ -11,6 +11,7 @@ const files = [
   ['security-contact.php', 'website/security-contact.php'],
   ['.htaccess', 'website/.htaccess'],
   ['includes/.htaccess', 'website/includes/.htaccess'],
+  ['storage/.htaccess', 'website/storage/.htaccess'],
   ['includes/app.php', 'website/includes/app.php'],
   ['includes/wa.php', 'website/includes/wa.php'],
   ['includes/security.php', 'website/includes/security.php'],

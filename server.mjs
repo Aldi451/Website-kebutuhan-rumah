@@ -81,7 +81,7 @@ const server = http.createServer((request, response) => {
         response.end('Not found.');
         return;
       }
-      const routedPath = normalizedPath === '/.well-known/security.txt' ? '/security-contact.php' : parsedUrl.pathname === '/' ? '/index.php' : parsedUrl.pathname;
+      const routedPath = normalizedPath === '/.well-known/security.txt' ? '/security-contact.php' : normalizedPath === '/' ? '/index.php' : normalizedPath;
       const targetUrl = `${routedPath}${parsedUrl.search}`;
       const headers = {};
       for (const [name, value] of Object.entries(request.headers)) {

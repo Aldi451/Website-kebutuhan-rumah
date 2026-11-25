@@ -15,6 +15,12 @@ try {
         echo "Akses ditolak.\n";
         exit;
     }
+    if (!in_array(strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')), ['GET', 'POST'], true)) {
+        header('Allow: GET, POST');
+        http_response_code(405);
+        echo "Metode HTTP tidak diizinkan.\n";
+        exit;
+    }
 
     $pdo = app_db();
     $now = date('Y-m-d H:i:s');
@@ -25,18 +31,26 @@ try {
     $query->execute([':now' => $now]);
     $reminders = $query->fetchAll();
 
+    $claim = $pdo->prepare("UPDATE reminders SET due_notified_at = :claimed WHERE id = :id AND status = 'pending' AND due_notified_at IS NULL");
+    $unclaim = $pdo->prepare('UPDATE reminders SET due_notified_at = NULL WHERE id = :id AND due_notified_at = :claimed');
+
     $sent = 0;
     $failed = 0;
     foreach ($reminders as $reminder) {
+        $reminderId = (int) $reminder['id'];
+        // Claim atomically before network I/O so overlapping cron runs never double-send.
+        $claim->execute([':claimed' => $now, ':id' => $reminderId]);
+        if ($claim->rowCount() !== 1) {
+            continue;
+        }
         // Bentuk pesannya sama dengan kabar yang dikirim saat pengingat dibuat/dikirim manual.
         // Sekarang dikirim ke semua penerima yang dipilih di Pengaturan → Notifikasi (multi-device).
         $message = app_reminder_message($reminder, '⏰ Pengingat rumah • waktunya dicek');
         $result = app_send_whatsapp_broadcast($message);
         if ($result['ok'] ?? false) {
-            $update = $pdo->prepare('UPDATE reminders SET due_notified_at = :notified WHERE id = :id AND due_notified_at IS NULL');
-            $update->execute([':notified' => $now, ':id' => (int) $reminder['id']]);
             $sent += (int) ($result['sent'] ?? 1);
         } else {
+            $unclaim->execute([':id' => $reminderId, ':claimed' => $now]);
             $failed++;
         }
     }
@@ -45,7 +59,11 @@ try {
     $monthlyNote = '';
     try {
         $dueReport = app_wa_monthly_due_period();
-        if ($dueReport !== null && (string) app_setting('wa_monthly_last_key', '') !== $dueReport['key']) {
+        if (
+            $dueReport !== null
+            && (string) app_setting('wa_monthly_last_key', '') !== $dueReport['key']
+            && app_notification_slot($pdo, 'cron_monthly_lock:' . $dueReport['key'], 1, 300, time()) === 0
+        ) {
             $report = app_wa_send_monthly_report($dueReport['key']);
             $monthlyNote = ' Laporan bulanan ' . $dueReport['label'] . ': ' . (int) $report['sent']
                 . ' terkirim, ' . (int) $report['failed'] . ' gagal.';
