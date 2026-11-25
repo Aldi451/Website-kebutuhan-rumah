@@ -513,9 +513,16 @@ Tombol **Cancel** membatalkan tanpa menghapus data; ada konfirmasi, badge, dan f
 
 API `reminder/toggle` menerima status opsional `pending`, `done`, `cancel`; tanpa status, pengingat selesai/cancel kembali aktif. `completed_at` hanya terisi untuk `done`. Kolom status sudah VARCHAR(12), jadi tidak perlu migrasi database. Pengaktifan ulang tidak menghapus riwayat `due_notified_at`, agar notifikasi yang sudah pernah terkirim tidak terduplikasi; kirim manual bila diperlukan.
 
-### Transaksi dashboard bulan berjalan
+### Pemilih periode dashboard & akumulasi saldo akhir (ending balance)
 
-Daftar **Transaksi bulan ini** hanya mengambil transaksi bertanggal dalam bulan/tahun berjalan menurut zona waktu server aplikasi, dari tanggal 1 hingga akhir bulan. Maksimal 7 baris terbaru, urut tanggal lalu ID menurun. Transaksi bulan lain tetap tersimpan dan tersedia di Keuangan; jika bulan berjalan kosong, dashboard tidak mengambil pengganti dari bulan lain. Saldo sepanjang waktu dan grafik historis tidak diubah. Tes: `node scripts/test-dashboard-month.mjs`.
+Dashboard menyediakan bar **Periode (`‹ Bulan & Tahun ›` + tombol `Bulan ini`)** yang mengatur seluruh kartu ringkasan, grafik 6 bulan terakhir hingga periode tersebut, target pengeluaran, dan daftar maksimal 7 transaksi terbaru pada periode terpilih.
+
+Rumus kartu **Saldo tercatat** memakai saldo akhir kumulatif berantai (*running ending balance*):
+- `opening_balance` = total pemasukan dikurangi pengeluaran sebelum tanggal 1 bulan terpilih (sama dengan **total ending bulan sebelumnya**).
+- `period_net` = pemasukan bulan terpilih dikurangi pengeluaran bulan terpilih.
+- `balance` = `opening_balance + period_net` (transaksi pada bulan-bulan setelah periode terpilih tidak ikut dihitung).
+
+Dengan begitu, pengguna dapat menggeser periode bulan demi bulan (mis. Jan 2026 → Feb 2026 → Mar 2026) untuk melacak di bulan mana selisih mulai terjadi terhadap saldo rekening nyata. Tes: `node scripts/test-dashboard-month.mjs`.
 
 ## Master kategori dan input manual
 
